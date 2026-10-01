@@ -13,6 +13,8 @@
 - 修复：红蓝通道交换导致的显示颜色异常
 - 修复：时区处理错误导致的倒计时偏差
 - 修复：用户设置的窗体大小无法保存
+- 修复：启动时 SideBySide 配置错误（改用链接器自动生成 manifest）
+- 优化：目标时间输入框增加灰色提示与气泡说明，格式错误时自动聚焦并全选
 
 ## 功能特性
 
@@ -96,6 +98,8 @@ The idea started when I was trying to find a countdown timer for the Gaokao (Chi
 - Fixed: Color distortion caused by swapped red/blue channels
 - Fixed: Countdown offset due to timezone handling error
 - Fixed: Window size set by the user was not saved
+- Fixed: SideBySide configuration error at startup (switched to linker-generated manifest)
+- Improved: Date input now shows a gray cue banner and a balloon tooltip; invalid input is automatically focused and selected
 
 ## Features
 
