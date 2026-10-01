@@ -92,11 +92,33 @@ BOOL ParseTargetTime(const WCHAR* src, FILETIME* outFt)
     TrimSpaces(buf);
 
     if (swscanf(buf, L"%d-%d-%d %d:%d:%d", &Y, &M, &D, &h, &m, &s) < 6) {
-        h = m = s = 0;
-        if (swscanf(buf, L"%d-%d-%d %d:%d", &Y, &M, &D, &h, &m) < 5) {
-            h = m = s = 0;
-            if (swscanf(buf, L"%d-%d-%d", &Y, &M, &D) < 3)
-                return FALSE;
+        {
+            int n1 = 0, n2 = 0, n3 = 0;
+            int consumed = 0;
+            int r = swscanf(buf, L"%d-%d-%d %d:%d:%d%n", &Y, &M, &D, &h, &m, &s, &n1);
+            if (r >= 6) {
+                consumed = n1;
+            }
+            else {
+                h = m = s = 0;
+                r = swscanf(buf, L"%d-%d-%d %d:%d%n", &Y, &M, &D, &h, &m, &n2);
+                if (r >= 5) {
+                    consumed = n2;
+                }
+                else {
+                    h = m = s = 0;
+                    r = swscanf(buf, L"%d-%d-%d%n", &Y, &M, &D, &n3);
+                    if (r < 3) return FALSE;
+                    consumed = n3;
+                }
+            }
+            /* 检查尾部：只允许空白，防止 "2027-01-01 00:00:00abc" 被接受 */
+            {
+                const WCHAR* tail = buf + consumed;
+                while (*tail == L' ' || *tail == L'\t' ||
+                    *tail == L'\r' || *tail == L'\n') tail++;
+                if (*tail != L'\0') return FALSE;
+            }
         }
     }
     if (Y < 1970 || Y > 9999 || M < 1 || M > 12 || D < 1 || D > 31 ||
@@ -106,7 +128,12 @@ BOOL ParseTargetTime(const WCHAR* src, FILETIME* outFt)
     ZeroMemory(&st, sizeof(st));
     st.wYear = (WORD)Y; st.wMonth = (WORD)M;  st.wDay = (WORD)D;
     st.wHour = (WORD)h; st.wMinute = (WORD)m; st.wSecond = (WORD)s;
-    return SystemTimeToFileTime(&st, outFt);
+
+    FILETIME ftLocal;
+    if (!SystemTimeToFileTime(&st, &ftLocal))
+        return FALSE;
+
+    return LocalFileTimeToFileTime(&ftLocal, outFt);
 }
 
 static void TrimSpaces(WCHAR* s)
@@ -233,9 +260,17 @@ void SaveWindowPlacement(void)
         if (GetWindowRect(g_hwndTimer, &rc)) {
             g_cfg.x = rc.left;
             g_cfg.y = rc.top;
-            if (g_cfg.w > 0 && g_cfg.h > 0) {
-                g_cfg.w = rc.right - rc.left;
-                g_cfg.h = rc.bottom - rc.top;
+
+            /* 编辑模式的窗口带 WS_THICKFRAME（可拉伸）。
+               用户拖动窗口边框后 WM_EXITSIZEMOVE 会调用这里，
+               此时把实际尺寸写回配置，下次启动就按这个尺寸显示。
+               非编辑模式下没有 WS_THICKFRAME，w/h 保持 0 表示自动大小。*/
+            {
+                LONG style = GetWindowLongW(g_hwndTimer, GWL_STYLE);
+                if (style & WS_THICKFRAME) {
+                    g_cfg.w = rc.right - rc.left;
+                    g_cfg.h = rc.bottom - rc.top;
+                }
             }
         }
     }
@@ -263,9 +298,12 @@ void BuildCountdownText(WCHAR* buf, size_t cch)
     GetSystemTimeAsFileTime(&nowFt);
     target = ((ULONGLONG)g_cfg.targetFt.dwHighDateTime << 32) | g_cfg.targetFt.dwLowDateTime;
     now    = ((ULONGLONG)nowFt.dwHighDateTime << 32) | nowFt.dwLowDateTime;
-    sec    = (target > now) ? (target - now) / 10000000ULL : 0ULL;
+    sec = (target > now) ? (target - now) / 10000000ULL : 0ULL;
     d = sec / 86400ULL;
     h = (sec % 86400ULL) / 3600ULL;
     m = (sec % 3600ULL) / 60ULL;
-    StringCchPrintfW(buf, cch, L"%llu天%llu小时%llu分钟", d, h, m);
+    {
+        ULONGLONG s = sec % 60ULL;
+        StringCchPrintfW(buf, cch, L"%llu天%llu小时%llu分钟%llu秒", d, h, m, s);
+    }
 }

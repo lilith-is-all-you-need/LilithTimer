@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#pragma comment(lib, "comctl32.lib")
+
 /* 设置对话框控件 ID */
 #define IDC_RADIO_DESKTOP     2001
 #define IDC_RADIO_PASSTHROUGH 2002
@@ -30,6 +32,7 @@ static COLORREF s_backColor;
 /* 实时预览：打开对话框时的配置快照（取消时恢复），s_ready 屏蔽初始化期的 EN_CHANGE */
 static AppConfig s_origCfg;
 static BOOL      s_ready = FALSE;
+static HWND      s_hTargetTip = NULL;   /* 目标时间输入框的气泡提示 */
 
 /* 打开系统调色板 */
 static BOOL PickColor(HWND parent, COLORREF* color)
@@ -100,6 +103,8 @@ static BOOL ValidateAndSave(HWND hdlg)
                     L"正确格式示例：2027-01-01 00:00:00\r\n"
                     L"（秒可省略为 2027-01-01 00:00；分隔符 - 和 / 均可）",
                     L"设置", MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
+        SetFocus(GetDlgItem(hdlg, IDC_EDIT_TARGET));
+        SendDlgItemMessageW(hdlg, IDC_EDIT_TARGET, EM_SETSEL, 0, -1);
         return FALSE;
     }
 
@@ -159,11 +164,18 @@ static BOOL ValidateAndSave(HWND hdlg)
     g_cfg.cdColor = s_cdColor;
     g_cfg.backColor = s_backColor;
 
-    StringCchPrintfW(buf, COUNT_OF(buf), L"%06X", s_textColor);
+    /* COLORREF 的内存布局是 0x00BBGGRR，直接 %06X 出来是 BGR 顺序，
+   而 config.c 的 ParseColor 是按 RRGGBB 读的。这里分别取 R/G/B 再格式化。*/
+    StringCchPrintfW(buf, COUNT_OF(buf), L"%02X%02X%02X",
+        GetRValue(s_textColor), GetGValue(s_textColor), GetBValue(s_textColor));
     writeOk = WritePrivateProfileStringW(L"Style", L"TextColor", buf, g_iniPath) && writeOk;
-    StringCchPrintfW(buf, COUNT_OF(buf), L"%06X", s_cdColor);
+
+    StringCchPrintfW(buf, COUNT_OF(buf), L"%02X%02X%02X",
+        GetRValue(s_cdColor), GetGValue(s_cdColor), GetBValue(s_cdColor));
     writeOk = WritePrivateProfileStringW(L"Style", L"CountdownColor", buf, g_iniPath) && writeOk;
-    StringCchPrintfW(buf, COUNT_OF(buf), L"%06X", s_backColor);
+
+    StringCchPrintfW(buf, COUNT_OF(buf), L"%02X%02X%02X",
+        GetRValue(s_backColor), GetGValue(s_backColor), GetBValue(s_backColor));
     writeOk = WritePrivateProfileStringW(L"Style", L"BackColor", buf, g_iniPath) && writeOk;
 
     /* 背景不透明度 */
@@ -259,6 +271,7 @@ static INT_PTR CALLBACK SettingsDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM l
 {
     switch (msg) {
     case WM_INITDIALOG: {
+        s_hTargetTip = NULL;
         WCHAR timeStr[64];
         WCHAR opacityStr[16];
         SYSTEMTIME st;
@@ -292,7 +305,39 @@ static INT_PTR CALLBACK SettingsDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM l
             StringCchCopyW(timeStr, COUNT_OF(timeStr), L"2027-01-01 00:00:00");
         }
         SetDlgItemTextW(hdlg, IDC_EDIT_TARGET, timeStr);
+        /* --- 目标时间输入框：灰色提示 + 气泡 Tooltip --- */
+        {
+            HWND hTarget = GetDlgItem(hdlg, IDC_EDIT_TARGET);
+            if (hTarget) {
+                /* 输入框为空时显示灰色示例（用户一开始输入就消失，
+                   删空又会回来），TRUE 表示获得焦点时也显示 */
+                SendMessageW(hTarget, EM_SETCUEBANNER, TRUE,
+                    (LPARAM)L"例如：2027-01-01 00:00:00");
+            }
 
+            /* 气泡提示：鼠标悬停在输入框上时弹出完整格式说明 */
+            s_hTargetTip = CreateWindowExW(
+                0, TOOLTIPS_CLASSW, NULL,
+                WS_POPUP | TTS_ALWAYSTIP | TTS_BALLOON | TTS_NOPREFIX,
+                CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                hdlg, NULL, g_hInst, NULL);
+
+            if (s_hTargetTip && hTarget) {
+                TOOLINFOW ti;
+                ZeroMemory(&ti, sizeof(ti));
+                ti.cbSize = sizeof(ti);
+                ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+                ti.hwnd = hdlg;
+                ti.uId = (UINT_PTR)hTarget;
+                ti.lpszText = (LPWSTR)L"请按 YYYY-MM-DD HH:MM:SS 格式输入。\n"
+                    L"例如：2027-01-01 00:00:00\n"
+                    L"秒可以省略：2027-01-01 00:00\n"
+                    L"日期分隔符 - 和 / 均可。";
+                SendMessageW(s_hTargetTip, TTM_ADDTOOLW, 0, (LPARAM)&ti);
+                SendMessageW(s_hTargetTip, TTM_SETMAXTIPWIDTH, 0, 320);
+                SendMessageW(s_hTargetTip, TTM_SETDELAYTIME, TTDT_INITIAL, 150);
+            }
+        }
         /* 字体与字号 */
         SetDlgItemTextW(hdlg, IDC_EDIT_FONTNAME, g_cfg.fontName);
         SendDlgItemMessageW(hdlg, IDC_EDIT_FONTNAME, EM_LIMITTEXT,

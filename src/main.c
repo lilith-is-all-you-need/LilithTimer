@@ -1,5 +1,9 @@
 ﻿#include "lilith_timer.h"
 
+/* 启用 Common Controls 6.0：让 EM_SETCUEBANNER、Tooltip v6、视觉样式生效。
+   用 pragma 让链接器自动生成正确的 manifest，避免外部 app.manifest 引发 SxS 错误。 */
+#pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+
 /* 全局变量定义 */
 HINSTANCE g_hInst = NULL;
 HWND      g_hwndMsg = NULL;
@@ -182,7 +186,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
         DbgLog(L"全局热键已注册: Ctrl+Alt+L 弹出菜单");
     CreateTimerWindow();
 
-    SetTimer(g_hwndMsg, IDT_COUNTDOWN, 500, NULL);
+    SetTimer(g_hwndMsg, IDT_COUNTDOWN, 1000, NULL);   /* 500 → 1000，秒级刷新足够 */
     SetTimer(g_hwndMsg, IDT_WATCHDOG, 2000, NULL);
 
     /* 消息循环 */

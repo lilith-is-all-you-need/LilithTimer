@@ -266,6 +266,11 @@ void RefreshContent(BOOL force)
 {
     static WCHAR lastCountdown[128] = L"";
     WCHAR cd[128];
+
+    /* 窗口不在（重建中途/被 Explorer 销毁）就直接返回，
+     否则 InvalidateRect(NULL, ...) 会把整个桌面标脏，引起闪烁 */
+    if (!g_hwndTimer || !IsWindow(g_hwndTimer)) return;
+
     BuildCountdownText(cd, COUNT_OF(cd));
     if (!force && wcscmp(cd, lastCountdown) == 0) return;
     StringCchCopyW(lastCountdown, COUNT_OF(lastCountdown), cd);
