@@ -6,6 +6,14 @@
 
 本来只是想给学校找一个能作为高考倒计时的软件，但发现市面上同类软件要么需要付费开通 VIP，要么体积臃肿、附带许多无关功能。于是干脆自己用 AI 工具搓了一版轻量级的，无广告、无多余负担，只专注倒计时本身。
 
+## 更新日志
+
+### v1.0.0
+
+- 修复：红蓝通道交换导致的显示颜色异常
+- 修复：时区处理错误导致的倒计时偏差
+- 修复：用户设置的窗体大小无法保存
+
 ## 功能特性
 
 - 原生 Win32 API，轻量级无依赖
@@ -80,6 +88,14 @@ A lightweight Win32 timer written in C.
 ## Background
 
 The idea started when I was trying to find a countdown timer for the Gaokao (Chinese college entrance exam) for my school. Most existing software either required a paid VIP subscription or was too bloated with unnecessary features. So I decided to build a lightweight version myself with the help of AI tools. No ads, no bloat—just a simple and effective countdown timer.
+
+## Changelog
+
+### v1.0.0
+
+- Fixed: Color distortion caused by swapped red/blue channels
+- Fixed: Countdown offset due to timezone handling error
+- Fixed: Window size set by the user was not saved
 
 ## Features
 
