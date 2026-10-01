@@ -30,7 +30,7 @@
 #define APP_NAME     L"LilithTimer"
 #endif
 #ifndef APP_VERSION
-#define APP_VERSION  L"1.0.0"
+#define APP_VERSION  L"1.1.0"
 #endif
 #ifndef ABOUT_TEXT
 #define ABOUT_TEXT L"LilithTimer v" APP_VERSION L"\r\n\r\n桌面倒计时小工具\r\n" L"Dev:LilithIsAllYouNeed\r\n" L"Tool:Kimi K3 Pro"
@@ -41,6 +41,9 @@
 #define WM_APP_TRAYICON   101
 #define IDT_COUNTDOWN     1
 #define IDT_WATCHDOG      2
+
+/* 兼容贴桌面：WinEvent 钩子检测到前台窗口切换后投递的守护消息 */
+#define WM_APP_COMPAT_GUARD  (WM_APP + 1)
 
 #define CMD_EXIT          1001
 #define CMD_EDIT          1002
@@ -63,9 +66,10 @@
 #define COUNT_OF(a) (sizeof(a)/sizeof((a)[0]))
 
 typedef enum {
-    MODE_DESKTOP = 0,
-    MODE_PASSTHROUGH = 1,
-    MODE_FLOAT = 2
+    MODE_DESKTOP = 0,        /* [原生]贴桌面：SetParent 挂载到 WorkerW/Progman */
+    MODE_DESKTOP_COMPAT,     /* [兼容]贴桌面：顶层窗口 + Z-Order 动态守护（不挂载） */
+    MODE_PASSTHROUGH,        /* 穿透：置顶 + 点击穿透 */
+    MODE_FLOAT               /* 浮动 */
 } DisplayMode;
 
 typedef struct {
@@ -84,6 +88,8 @@ typedef struct {
     int lineSpacing;
     int x, y;
     int w, h;
+    BOOL tzUseSystem;      /* TRUE = 跟随系统时区 */
+    int  tzOffsetMinutes;  /* 自定义时区偏移，单位分钟，范围 [-720, 840] */
 } AppConfig;
 
 /* 全局变量 */
@@ -109,6 +115,9 @@ void LoadConfig(void);
 void SaveWindowPlacement(void);
 void BuildCountdownText(WCHAR* buf, size_t cch);
 BOOL ParseTargetTime(const WCHAR* src, FILETIME* outFt);
+BOOL ParseTargetTimeAtTz(const WCHAR* src, BOOL useSystem, int tzMinutes, FILETIME* outFt);
+void UtcToWallTime(const FILETIME* utc, BOOL useSystem, int tzMinutes, SYSTEMTIME* outWall);
+BOOL WallTimeToUtc(const SYSTEMTIME* st, BOOL useSystem, int tzMinutes, FILETIME* outFt);
 COLORREF ParseColor(const WCHAR* s, COLORREF def);
 void DbgLog(const WCHAR* fmt, ...);
 
@@ -122,6 +131,10 @@ void DestroyTimerWindow(void);
 void RecreateTimerWindow(void);
 void RefreshContent(BOOL force);
 LRESULT CALLBACK TimerWndProc(HWND, UINT, WPARAM, LPARAM);
+void CompatZOrderGuard(void);    /* [兼容]贴桌面：把窗口压回壁纸之上、其他窗口之下 */
+void CompatGuardInstall(void);   /* 挂接 WinEvent 钩子（EVENT_SYSTEM_FOREGROUND） */
+void CompatGuardUninstall(void);
+void CompatGuardPump(void);      /* 消息循环收到 WM_APP_COMPAT_GUARD 后调用 */
 
 /* tray.c */
 void TrayAdd(void);

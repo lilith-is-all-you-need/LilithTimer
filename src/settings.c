@@ -5,24 +5,90 @@
 #pragma comment(lib, "comctl32.lib")
 
 /* 设置对话框控件 ID */
-#define IDC_RADIO_DESKTOP     2001
-#define IDC_RADIO_PASSTHROUGH 2002
-#define IDC_RADIO_FLOAT       2003
-#define IDC_EDIT_TEXT         2004
-#define IDC_EDIT_TARGET       2005
-#define IDC_STATIC_TEXTCOLOR  2006
-#define IDC_STATIC_CDCOLOR    2007
-#define IDC_STATIC_BACKCOLOR  2008
-#define IDC_BTN_TEXTCOLOR     2009
-#define IDC_BTN_CDCOLOR       2010
-#define IDC_BTN_BACKCOLOR     2011
-#define IDC_SLIDER_OPACITY    2012
-#define IDC_LABEL_OPACITY     2013
-#define IDC_EDIT_FONTNAME     2014
-#define IDC_EDIT_FONTSIZE     2015
-#define IDC_EDIT_CDFONTSIZE   2016
-#define IDC_EDIT_PADDING      2017
-#define IDC_EDIT_LINESPACING  2018
+/* 注意：单选按钮 ID 必须与 DisplayMode 枚举顺序保持连续
+   （DESKTOP/DESKTOP_COMPAT/PASSTHROUGH/FLOAT = 0/1/2/3），这样 WM_INITDIALOG 里的
+   CheckRadioButton(IDC_RADIO_DESKTOP, IDC_RADIO_FLOAT, IDC_RADIO_DESKTOP + g_cfg.mode)
+   才能正确映射四种模式。
+   单选按钮使用 2021~2024，避免与 2004~2020 的其他控件 ID 冲突。 */
+#define IDC_RADIO_DESKTOP            2021
+#define IDC_RADIO_DESKTOP_COMPAT     2022
+#define IDC_RADIO_PASSTHROUGH        2023
+#define IDC_RADIO_FLOAT              2024
+#define IDC_EDIT_TEXT                2004
+#define IDC_DTP_TARGET               2005   /* 系统日期时间选择器 */
+#define IDC_STATIC_TEXTCOLOR         2006
+#define IDC_STATIC_CDCOLOR           2007
+#define IDC_STATIC_BACKCOLOR         2008
+#define IDC_BTN_TEXTCOLOR            2009
+#define IDC_BTN_CDCOLOR              2010
+#define IDC_BTN_BACKCOLOR            2011
+#define IDC_SLIDER_OPACITY           2012
+#define IDC_LABEL_OPACITY            2013
+#define IDC_COMBO_FONT               2014   /* 字体名称下拉框 */
+#define IDC_EDIT_FONTSIZE            2015
+#define IDC_EDIT_CDFONTSIZE          2016
+#define IDC_EDIT_PADDING             2017
+#define IDC_EDIT_LINESPACING         2018
+#define IDC_CHK_SYSTEM_TZ            2019
+#define IDC_EDIT_TZ_OFFSET           2020
+#define IDC_SLIDER_FONTSIZE          2025
+#define IDC_SLIDER_CDFONTSIZE        2026
+#define IDC_SLIDER_PADDING           2027
+#define IDC_SLIDER_LINESPACING       2028
+
+/* 时区下拉框可选项（分钟偏移 + 显示文本） */
+typedef struct { int minutes; const WCHAR* label; } TzItem;
+static const TzItem s_tzItems[] = {
+    {-720, L"UTC-12:00  国际日期变更线西"},
+    {-660, L"UTC-11:00  美属萨摩亚"},
+    {-600, L"UTC-10:00  夏威夷"},
+    {-540, L"UTC-09:00  阿拉斯加"},
+    {-480, L"UTC-08:00  美国太平洋时间"},
+    {-420, L"UTC-07:00  美国山地时间"},
+    {-360, L"UTC-06:00  美国中部时间"},
+    {-300, L"UTC-05:00  美国东部时间"},
+    {-240, L"UTC-04:00  大西洋时间"},
+    {-210, L"UTC-03:30  纽芬兰"},
+    {-180, L"UTC-03:00  巴西、阿根廷"},
+    {-120, L"UTC-02:00  南乔治亚"},
+    {-60,  L"UTC-01:00  亚速尔群岛"},
+    {0,    L"UTC±00:00  伦敦、格林尼治"},
+    {60,   L"UTC+01:00  巴黎、柏林、罗马"},
+    {120,  L"UTC+02:00  雅典、开罗、南非"},
+    {180,  L"UTC+03:00  莫斯科、利雅得"},
+    {210,  L"UTC+03:30  德黑兰"},
+    {240,  L"UTC+04:00  迪拜、巴库"},
+    {270,  L"UTC+04:30  喀布尔"},
+    {300,  L"UTC+05:00  塔什干、伊斯兰堡"},
+    {330,  L"UTC+05:30  新德里、孟买"},
+    {345,  L"UTC+05:45  加德满都"},
+    {360,  L"UTC+06:00  达卡、阿拉木图"},
+    {390,  L"UTC+06:30  仰光"},
+    {420,  L"UTC+07:00  曼谷、雅加达、河内"},
+    {480,  L"UTC+08:00  北京、上海、香港、新加坡"},
+    {540,  L"UTC+09:00  东京、首尔"},
+    {570,  L"UTC+09:30  阿德莱德、达尔文"},
+    {600,  L"UTC+10:00  悉尼、关岛"},
+    {630,  L"UTC+10:30  豪勋爵岛"},
+    {660,  L"UTC+11:00  所罗门群岛、新喀里多尼亚"},
+    {720,  L"UTC+12:00  奥克兰、斐济"},
+    {765,  L"UTC+12:45  查塔姆群岛"},
+    {780,  L"UTC+13:00  萨摩亚、汤加"},
+    {840,  L"UTC+14:00  基里巴斯·莱恩群岛"},
+};
+#define TZ_ITEM_COUNT ((int)COUNT_OF(s_tzItems))
+
+/* 根据分钟偏移找到下拉框索引；找不到时取最接近的 */
+static int TzMinutesToIndex(int minutes)
+{
+    int i, best = 0, bestDiff = 0x7FFFFFFF;
+    for (i = 0; i < TZ_ITEM_COUNT; i++) {
+        int d = s_tzItems[i].minutes - minutes;
+        if (d < 0) d = -d;
+        if (d < bestDiff) { bestDiff = d; best = i; }
+    }
+    return best;
+}
 
 /* 当前编辑的颜色值 */
 static COLORREF s_textColor;
@@ -32,7 +98,6 @@ static COLORREF s_backColor;
 /* 实时预览：打开对话框时的配置快照（取消时恢复），s_ready 屏蔽初始化期的 EN_CHANGE */
 static AppConfig s_origCfg;
 static BOOL      s_ready = FALSE;
-static HWND      s_hTargetTip = NULL;   /* 目标时间输入框的气泡提示 */
 
 /* 打开系统调色板 */
 static BOOL PickColor(HWND parent, COLORREF* color)
@@ -82,6 +147,101 @@ static int GetDlgIntClamped(HWND hdlg, int id, int oldVal, int lo, int hi)
     return ClampInt((int)v, lo, hi);
 }
 
+/* 数值编辑框 + 滑块配对，用于「字号/内边距/行距」的滑块同步 */
+typedef struct {
+    int editId;
+    int sliderId;
+    int lo, hi;
+} NumField;
+
+static const NumField s_numFields[] = {
+    { IDC_EDIT_FONTSIZE,    IDC_SLIDER_FONTSIZE,    8, 200 },
+    { IDC_EDIT_CDFONTSIZE,  IDC_SLIDER_CDFONTSIZE,  8, 300 },
+    { IDC_EDIT_PADDING,     IDC_SLIDER_PADDING,     0, 200 },
+    { IDC_EDIT_LINESPACING, IDC_SLIDER_LINESPACING, 0, 200 },
+};
+#define NUM_FIELD_COUNT ((int)COUNT_OF(s_numFields))
+
+static BOOL s_syncing = FALSE;   /* 程序化更新编辑框时屏蔽 EN_CHANGE，避免与滑块互相触发 */
+
+/* 读取下拉框当前选中的文本（buf 需足够大，≥ LF_FACESIZE） */
+static void GetComboSelText(HWND hdlg, int id, WCHAR* buf)
+{
+    HWND combo = GetDlgItem(hdlg, id);
+    LRESULT sel = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+    buf[0] = L'\0';
+    if (sel != CB_ERR)
+        SendMessageW(combo, CB_GETLBTEXT, (WPARAM)sel, (LPARAM)buf);
+}
+
+/* 字体枚举回调：把系统字体的 face name 加入下拉框（去重） */
+static int CALLBACK EnumFontProc(const LOGFONTW* lf, const TEXTMETRICW* tm, DWORD type, LPARAM lParam)
+{
+    HWND combo = (HWND)lParam;
+    (void)tm; (void)type;
+    if (lf && lf->lfFaceName[0]) {
+        if (SendMessageW(combo, CB_FINDSTRING, (WPARAM)-1, (LPARAM)lf->lfFaceName) == CB_ERR)
+            SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)lf->lfFaceName);
+    }
+    return 1;
+}
+
+/* 填充字体下拉框并选中当前字体 */
+static void PopulateFontCombo(HWND hdlg)
+{
+    HWND combo = GetDlgItem(hdlg, IDC_COMBO_FONT);
+    LOGFONTW lf;
+    HDC hdc;
+    LRESULT idx;
+
+    ZeroMemory(&lf, sizeof(lf));
+    lf.lfCharSet = DEFAULT_CHARSET;
+    hdc = GetDC(NULL);
+    if (hdc) {
+        EnumFontFamiliesExW(hdc, &lf, EnumFontProc, (LPARAM)combo, 0);
+        ReleaseDC(NULL, hdc);
+    }
+
+    idx = SendMessageW(combo, CB_FINDSTRINGEXACT, (WPARAM)-1, (LPARAM)g_cfg.fontName);
+    if (idx == CB_ERR)
+        idx = SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)g_cfg.fontName);
+    SendMessageW(combo, CB_SETCURSEL, idx, 0);
+}
+
+/* 把滑块值同步到编辑框（程序化更新，屏蔽 EN_CHANGE） */
+static void SyncSliderToEdit(HWND hdlg, const NumField* f)
+{
+    HWND slider = GetDlgItem(hdlg, f->sliderId);
+    int v = (int)SendMessageW(slider, TBM_GETPOS, 0, 0);
+    s_syncing = TRUE;
+    SetDlgItemInt(hdlg, f->editId, (UINT)ClampInt(v, f->lo, f->hi), FALSE);
+    s_syncing = FALSE;
+}
+
+/* 把编辑框里合法且未越界的值同步到滑块 */
+static void SyncEditToSlider(HWND hdlg, const NumField* f)
+{
+    BOOL ok = FALSE;
+    UINT v = GetDlgItemInt(hdlg, f->editId, &ok, FALSE);
+    if (ok) {
+        HWND slider = GetDlgItem(hdlg, f->sliderId);
+        if (v < (UINT)f->lo) v = (UINT)f->lo;
+        if (v > (UINT)f->hi) v = (UINT)f->hi;
+        SendMessageW(slider, TBM_SETPOS, TRUE, (LPARAM)v);
+    }
+}
+
+/* 从日期时间选择器读取墙上时间并转成 UTC FILETIME */
+static BOOL ReadTargetFromDtp(HWND hdlg, FILETIME* outFt)
+{
+    SYSTEMTIME st;
+    HWND dtp = GetDlgItem(hdlg, IDC_DTP_TARGET);
+    if (!dtp || !outFt) return FALSE;
+    ZeroMemory(&st, sizeof(st));
+    SendMessageW(dtp, DTM_GETSYSTEMTIME, 0, (LPARAM)&st);
+    return WallTimeToUtc(&st, g_cfg.tzUseSystem, g_cfg.tzOffsetMinutes, outFt);
+}
+
 /*
  * 校验并保存设置到 ini，然后立即重建窗口生效。
  * 返回 TRUE 表示可以关闭对话框；FALSE 表示校验失败（不关闭）。
@@ -92,21 +252,30 @@ static BOOL ValidateAndSave(HWND hdlg)
     WCHAR targetStr[64];
     WCHAR numStr[16];
     FILETIME ft;
+    SYSTEMTIME st;
     HWND slider;
     BOOL writeOk = TRUE;
-
-    /* 目标时间先校验：格式错误则提示并留在对话框中 */
-    GetDlgItemTextW(hdlg, IDC_EDIT_TARGET, targetStr, COUNT_OF(targetStr));
-    if (!ParseTargetTime(targetStr, &ft)) {
-        MessageBoxW(hdlg,
-                    L"目标时间格式不正确，本次修改未保存。\r\n\r\n"
-                    L"正确格式示例：2027-01-01 00:00:00\r\n"
-                    L"（秒可省略为 2027-01-01 00:00；分隔符 - 和 / 均可）",
+    /* 先把时区同步进 g_cfg，再读取目标时间 */
+    {
+        BOOL newUseSystem = (IsDlgButtonChecked(hdlg, IDC_CHK_SYSTEM_TZ) == BST_CHECKED);
+        g_cfg.tzUseSystem = newUseSystem;
+        if (!newUseSystem) {
+            int sel = (int)SendDlgItemMessageW(hdlg, IDC_EDIT_TZ_OFFSET, CB_GETCURSEL, 0, 0);
+            if (sel < 0 || sel >= TZ_ITEM_COUNT) sel = TzMinutesToIndex(g_cfg.tzOffsetMinutes);
+            g_cfg.tzOffsetMinutes = s_tzItems[sel].minutes;
+        }
+    }
+    /* 目标时间：从日期时间选择器读取（选择器保证日期合法） */
+    ZeroMemory(&st, sizeof(st));
+    SendDlgItemMessageW(hdlg, IDC_DTP_TARGET, DTM_GETSYSTEMTIME, 0, (LPARAM)&st);
+    if (!WallTimeToUtc(&st, g_cfg.tzUseSystem, g_cfg.tzOffsetMinutes, &ft)) {
+        MessageBoxW(hdlg, L"目标时间无效，本次修改未保存。",
                     L"设置", MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
-        SetFocus(GetDlgItem(hdlg, IDC_EDIT_TARGET));
-        SendDlgItemMessageW(hdlg, IDC_EDIT_TARGET, EM_SETSEL, 0, -1);
         return FALSE;
     }
+    StringCchPrintfW(targetStr, COUNT_OF(targetStr),
+        L"%04d-%02d-%02d %02d:%02d:%02d",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
 
     /* ---- 以下逐项写入 g_cfg 与 ini ---- */
 
@@ -123,20 +292,28 @@ static BOOL ValidateAndSave(HWND hdlg)
     /* 显示模式 */
     if (IsDlgButtonChecked(hdlg, IDC_RADIO_DESKTOP))
         g_cfg.mode = MODE_DESKTOP;
+    else if (IsDlgButtonChecked(hdlg, IDC_RADIO_DESKTOP_COMPAT))
+        g_cfg.mode = MODE_DESKTOP_COMPAT;
     else if (IsDlgButtonChecked(hdlg, IDC_RADIO_PASSTHROUGH))
         g_cfg.mode = MODE_PASSTHROUGH;
     else
         g_cfg.mode = MODE_FLOAT;
 
     switch (g_cfg.mode) {
-    case MODE_DESKTOP:     StringCchCopyW(buf, COUNT_OF(buf), L"Desktop");     break;
-    case MODE_PASSTHROUGH: StringCchCopyW(buf, COUNT_OF(buf), L"PassThrough"); break;
-    default:               StringCchCopyW(buf, COUNT_OF(buf), L"Float");       break;
+    case MODE_DESKTOP:        StringCchCopyW(buf, COUNT_OF(buf), L"Desktop");       break;
+    case MODE_DESKTOP_COMPAT: StringCchCopyW(buf, COUNT_OF(buf), L"CompatDesktop"); break;
+    case MODE_PASSTHROUGH:    StringCchCopyW(buf, COUNT_OF(buf), L"PassThrough");   break;
+    default:                  StringCchCopyW(buf, COUNT_OF(buf), L"Float");         break;
     }
     writeOk = WritePrivateProfileStringW(L"Display", L"Mode", buf, g_iniPath) && writeOk;
+    /* 时区 */
+    StringCchPrintfW(numStr, COUNT_OF(numStr), L"%d", g_cfg.tzUseSystem ? 1 : 0);
+    writeOk = WritePrivateProfileStringW(L"Timer", L"UseSystemTZ", numStr, g_iniPath) && writeOk;
+    StringCchPrintfW(numStr, COUNT_OF(numStr), L"%d", g_cfg.tzOffsetMinutes);
+    writeOk = WritePrivateProfileStringW(L"Timer", L"TZOffsetMinutes", numStr, g_iniPath) && writeOk;
 
-    /* 字体名称（留空表示不修改） */
-    GetDlgItemTextW(hdlg, IDC_EDIT_FONTNAME, buf, COUNT_OF(buf));
+    /* 字体名称 */
+    GetComboSelText(hdlg, IDC_COMBO_FONT, buf);
     if (buf[0] == L'\0')
         StringCchCopyW(buf, COUNT_OF(buf), g_cfg.fontName);
     StringCchCopyW(g_cfg.fontName, COUNT_OF(g_cfg.fontName), buf);
@@ -215,21 +392,32 @@ static void ApplyLive(HWND hdlg, BOOL allowRecreate)
     /* 显示文字 */
     GetDlgItemTextW(hdlg, IDC_EDIT_TEXT, buf, COUNT_OF(buf));
     StringCchCopyW(g_cfg.text, COUNT_OF(g_cfg.text), buf);
-
-    /* 目标时间：输入完整合法才更新，非法时保持旧值 */
-    GetDlgItemTextW(hdlg, IDC_EDIT_TARGET, buf, COUNT_OF(buf));
-    if (ParseTargetTime(buf, &ft)) {
+    /* 时区：先更新 g_cfg，再解析目标时间 */
+    {
+        BOOL newUseSystem = (IsDlgButtonChecked(hdlg, IDC_CHK_SYSTEM_TZ) == BST_CHECKED);
+        int  newOffset = g_cfg.tzOffsetMinutes;
+        if (!newUseSystem) {
+            int sel = (int)SendDlgItemMessageW(hdlg, IDC_EDIT_TZ_OFFSET, CB_GETCURSEL, 0, 0);
+            if (sel < 0 || sel >= TZ_ITEM_COUNT) sel = TzMinutesToIndex(g_cfg.tzOffsetMinutes);
+            newOffset = s_tzItems[sel].minutes;
+        }
+        g_cfg.tzUseSystem = newUseSystem;
+        g_cfg.tzOffsetMinutes = newOffset;
+    }
+    /* 目标时间：日期时间选择器直接给出合法时间 */
+    if (ReadTargetFromDtp(hdlg, &ft)) {
         g_cfg.targetFt = ft;
         g_cfg.targetOk = TRUE;
     }
 
     /* 显示模式 */
-    if (IsDlgButtonChecked(hdlg, IDC_RADIO_DESKTOP))          newMode = MODE_DESKTOP;
-    else if (IsDlgButtonChecked(hdlg, IDC_RADIO_PASSTHROUGH)) newMode = MODE_PASSTHROUGH;
-    else                                                      newMode = MODE_FLOAT;
+    if (IsDlgButtonChecked(hdlg, IDC_RADIO_DESKTOP))            newMode = MODE_DESKTOP;
+    else if (IsDlgButtonChecked(hdlg, IDC_RADIO_DESKTOP_COMPAT)) newMode = MODE_DESKTOP_COMPAT;
+    else if (IsDlgButtonChecked(hdlg, IDC_RADIO_PASSTHROUGH))   newMode = MODE_PASSTHROUGH;
+    else                                                        newMode = MODE_FLOAT;
 
     /* 字体 / 字号 / 边距 / 行距 */
-    GetDlgItemTextW(hdlg, IDC_EDIT_FONTNAME, buf, COUNT_OF(buf));
+    GetComboSelText(hdlg, IDC_COMBO_FONT, buf);
     if (buf[0] != L'\0')
         StringCchCopyW(g_cfg.fontName, COUNT_OF(g_cfg.fontName), buf);
     g_cfg.fontSize    = GetDlgIntClamped(hdlg, IDC_EDIT_FONTSIZE,    g_cfg.fontSize,    8, 200);
@@ -271,15 +459,15 @@ static INT_PTR CALLBACK SettingsDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM l
 {
     switch (msg) {
     case WM_INITDIALOG: {
-        s_hTargetTip = NULL;
-        WCHAR timeStr[64];
         WCHAR opacityStr[16];
         SYSTEMTIME st;
         HWND slider;
+        int i;
 
         /* 实时预览：留快照；初始化期间 SetDlgItemX 也会触发 EN_CHANGE，先屏蔽 */
         s_origCfg = g_cfg;
         s_ready = FALSE;
+        s_syncing = FALSE;
 
         /* 显示模式 */
         CheckRadioButton(hdlg, IDC_RADIO_DESKTOP, IDC_RADIO_FLOAT,
@@ -290,64 +478,62 @@ static INT_PTR CALLBACK SettingsDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM l
         SendDlgItemMessageW(hdlg, IDC_EDIT_TEXT, EM_LIMITTEXT,
                             COUNT_OF(g_cfg.text) - 1, 0);
         /*显示图标*/
-        HINSTANCE h_inst = (HINSTANCE)GetWindowLongPtrW(hdlg, GWLP_HINSTANCE);
-        HICON h_icon = LoadIconW(h_inst, MAKEINTRESOURCEW(IDI_APP_ICON));
-        SendMessageW(hdlg, WM_SETICON, ICON_BIG, (LPARAM)h_icon);
-        SendMessageW(hdlg, WM_SETICON, ICON_SMALL, (LPARAM)h_icon);
-
-        /* 目标时间 */
-        if (g_cfg.targetOk) {
-            FileTimeToSystemTime(&g_cfg.targetFt, &st);
-            StringCchPrintfW(timeStr, COUNT_OF(timeStr),
-                L"%04d-%02d-%02d %02d:%02d:%02d",
-                st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
-        } else {
-            StringCchCopyW(timeStr, COUNT_OF(timeStr), L"2027-01-01 00:00:00");
-        }
-        SetDlgItemTextW(hdlg, IDC_EDIT_TARGET, timeStr);
-        /* --- 目标时间输入框：灰色提示 + 气泡 Tooltip --- */
         {
-            HWND hTarget = GetDlgItem(hdlg, IDC_EDIT_TARGET);
-            if (hTarget) {
-                /* 输入框为空时显示灰色示例（用户一开始输入就消失，
-                   删空又会回来），TRUE 表示获得焦点时也显示 */
-                SendMessageW(hTarget, EM_SETCUEBANNER, TRUE,
-                    (LPARAM)L"例如：2027-01-01 00:00:00");
-            }
+            HINSTANCE h_inst = (HINSTANCE)GetWindowLongPtrW(hdlg, GWLP_HINSTANCE);
+            HICON h_icon = LoadIconW(h_inst, MAKEINTRESOURCEW(IDI_APP_ICON));
+            SendMessageW(hdlg, WM_SETICON, ICON_BIG, (LPARAM)h_icon);
+            SendMessageW(hdlg, WM_SETICON, ICON_SMALL, (LPARAM)h_icon);
+        }
 
-            /* 气泡提示：鼠标悬停在输入框上时弹出完整格式说明 */
-            s_hTargetTip = CreateWindowExW(
-                0, TOOLTIPS_CLASSW, NULL,
-                WS_POPUP | TTS_ALWAYSTIP | TTS_BALLOON | TTS_NOPREFIX,
-                CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
-                hdlg, NULL, g_hInst, NULL);
-
-            if (s_hTargetTip && hTarget) {
-                TOOLINFOW ti;
-                ZeroMemory(&ti, sizeof(ti));
-                ti.cbSize = sizeof(ti);
-                ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
-                ti.hwnd = hdlg;
-                ti.uId = (UINT_PTR)hTarget;
-                ti.lpszText = (LPWSTR)L"请按 YYYY-MM-DD HH:MM:SS 格式输入。\n"
-                    L"例如：2027-01-01 00:00:00\n"
-                    L"秒可以省略：2027-01-01 00:00\n"
-                    L"日期分隔符 - 和 / 均可。";
-                SendMessageW(s_hTargetTip, TTM_ADDTOOLW, 0, (LPARAM)&ti);
-                SendMessageW(s_hTargetTip, TTM_SETMAXTIPWIDTH, 0, 320);
-                SendMessageW(s_hTargetTip, TTM_SETDELAYTIME, TTDT_INITIAL, 150);
+        /* 目标时间：系统日期时间选择器（自定义格式：日期 + 时分秒） */
+        {
+            HWND dtp = GetDlgItem(hdlg, IDC_DTP_TARGET);
+            if (dtp) {
+                SendMessageW(dtp, DTM_SETFORMATW, 0,
+                    (LPARAM)L"yyyy'-'MM'-'dd HH':'mm':'ss");
+                if (g_cfg.targetOk) {
+                    UtcToWallTime(&g_cfg.targetFt, g_cfg.tzUseSystem,
+                        g_cfg.tzOffsetMinutes, &st);
+                    SendMessageW(dtp, DTM_SETSYSTEMTIME, GDT_VALID, (LPARAM)&st);
+                }
             }
         }
-        /* 字体与字号 */
-        SetDlgItemTextW(hdlg, IDC_EDIT_FONTNAME, g_cfg.fontName);
-        SendDlgItemMessageW(hdlg, IDC_EDIT_FONTNAME, EM_LIMITTEXT,
-                            LF_FACESIZE - 1, 0);
+
+        /* 时区 */
+        CheckDlgButton(hdlg, IDC_CHK_SYSTEM_TZ,
+            g_cfg.tzUseSystem ? BST_CHECKED : BST_UNCHECKED);
+        {
+            HWND hCombo = GetDlgItem(hdlg, IDC_EDIT_TZ_OFFSET);
+            int i;
+            for (i = 0; i < TZ_ITEM_COUNT; i++)
+                SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)s_tzItems[i].label);
+            SendMessageW(hCombo, CB_SETCURSEL, TzMinutesToIndex(g_cfg.tzOffsetMinutes), 0);
+            EnableWindow(hCombo, !g_cfg.tzUseSystem);
+        }
+
+        /* 字体名称下拉框（枚举系统字体） */
+        PopulateFontCombo(hdlg);
+
+        /* 字号 / 边距 / 行距：编辑框 + 滑块 */
         SetDlgItemInt(hdlg, IDC_EDIT_FONTSIZE, (UINT)g_cfg.fontSize, FALSE);
         SetDlgItemInt(hdlg, IDC_EDIT_CDFONTSIZE, (UINT)g_cfg.cdFontSize, FALSE);
-
-        /* 边距与行距 */
         SetDlgItemInt(hdlg, IDC_EDIT_PADDING, (UINT)g_cfg.padding, FALSE);
         SetDlgItemInt(hdlg, IDC_EDIT_LINESPACING, (UINT)g_cfg.lineSpacing, FALSE);
+        {
+            struct { int sliderId; int lo, hi, val; } init[] = {
+                { IDC_SLIDER_FONTSIZE,    8, 200, g_cfg.fontSize },
+                { IDC_SLIDER_CDFONTSIZE,  8, 300, g_cfg.cdFontSize },
+                { IDC_SLIDER_PADDING,     0, 200, g_cfg.padding },
+                { IDC_SLIDER_LINESPACING, 0, 200, g_cfg.lineSpacing },
+            };
+            for (i = 0; i < (int)COUNT_OF(init); i++) {
+                HWND s = GetDlgItem(hdlg, init[i].sliderId);
+                if (s) {
+                    SendMessageW(s, TBM_SETRANGE, TRUE, MAKELONG(init[i].lo, init[i].hi));
+                    SendMessageW(s, TBM_SETPOS, TRUE, init[i].val);
+                }
+            }
+        }
 
         /* 颜色预览 */
         s_textColor = g_cfg.textColor;
@@ -372,15 +558,41 @@ static INT_PTR CALLBACK SettingsDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM l
     }
 
     case WM_HSCROLL: {
-        HWND slider = GetDlgItem(hdlg, IDC_SLIDER_OPACITY);
-        if (slider && (HWND)lp == slider) {
-            int pos = (int)SendMessageW((HWND)lp, TBM_GETPOS, 0, 0);
-            WCHAR str[16];
-            StringCchPrintfW(str, COUNT_OF(str), L"%d", pos);
-            SetDlgItemTextW(hdlg, IDC_LABEL_OPACITY, str);
-            if (s_ready) ApplyLive(hdlg, FALSE);   /* 拖动滑块实时生效 */
+        HWND ctrl = (HWND)lp;
+        int i;
+        if (!ctrl) break;
+
+        /* 数值滑块 → 同步编辑框 + 实时预览 */
+        for (i = 0; i < NUM_FIELD_COUNT; i++) {
+            if (GetDlgItem(hdlg, s_numFields[i].sliderId) == ctrl) {
+                SyncSliderToEdit(hdlg, &s_numFields[i]);
+                if (s_ready) ApplyLive(hdlg, FALSE);
+                return TRUE;
+            }
+        }
+
+        /* 不透明度滑块 → 更新数值标签 */
+        {
+            HWND slider = GetDlgItem(hdlg, IDC_SLIDER_OPACITY);
+            if (slider && ctrl == slider) {
+                int pos = (int)SendMessageW(ctrl, TBM_GETPOS, 0, 0);
+                WCHAR str[16];
+                StringCchPrintfW(str, COUNT_OF(str), L"%d", pos);
+                SetDlgItemTextW(hdlg, IDC_LABEL_OPACITY, str);
+                if (s_ready) ApplyLive(hdlg, FALSE);
+                return TRUE;
+            }
         }
         return TRUE;
+    }
+
+    case WM_NOTIFY: {
+        NMHDR* nm = (NMHDR*)lp;
+        if (nm && nm->idFrom == IDC_DTP_TARGET && nm->code == DTN_DATETIMECHANGE) {
+            if (s_ready) ApplyLive(hdlg, FALSE);
+            return TRUE;
+        }
+        break;
     }
 
     case WM_DRAWITEM: {
@@ -421,20 +633,46 @@ static INT_PTR CALLBACK SettingsDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM l
         WORD id = LOWORD(wp);
         WORD notify = HIWORD(wp);
 
-        /* 编辑框内容变化 → 实时预览 */
-        if (notify == EN_CHANGE && s_ready &&
-            (id == IDC_EDIT_TEXT || id == IDC_EDIT_TARGET ||
-             id == IDC_EDIT_FONTNAME || id == IDC_EDIT_FONTSIZE ||
-             id == IDC_EDIT_CDFONTSIZE || id == IDC_EDIT_PADDING ||
-             id == IDC_EDIT_LINESPACING)) {
+        /* 编辑框内容变化 → 同步滑块 + 实时预览 */
+        if (notify == EN_CHANGE && s_ready && !s_syncing &&
+            (id == IDC_EDIT_TEXT || id == IDC_EDIT_FONTSIZE ||
+                id == IDC_EDIT_CDFONTSIZE || id == IDC_EDIT_PADDING ||
+                id == IDC_EDIT_LINESPACING)) {
+            int i;
+            for (i = 0; i < NUM_FIELD_COUNT; i++) {
+                if (s_numFields[i].editId == id) {
+                    SyncEditToSlider(hdlg, &s_numFields[i]);
+                    break;
+                }
+            }
             ApplyLive(hdlg, FALSE);
+            return TRUE;
+        }
+
+        /* 字体下拉框选择变化 → 实时预览 */
+        if (id == IDC_COMBO_FONT && notify == CBN_SELCHANGE && s_ready) {
+            ApplyLive(hdlg, FALSE);
+            return TRUE;
+        }
+
+        /* 时区下拉框选择变化 → 实时预览 */
+        if (id == IDC_EDIT_TZ_OFFSET && notify == CBN_SELCHANGE && s_ready) {
+            ApplyLive(hdlg, FALSE);
+            return TRUE;
+        }
+
+        /* "跟随系统时区" 复选框切换 */
+        if (id == IDC_CHK_SYSTEM_TZ && notify == BN_CLICKED) {
+            BOOL useSystem = (IsDlgButtonChecked(hdlg, IDC_CHK_SYSTEM_TZ) == BST_CHECKED);
+            EnableWindow(GetDlgItem(hdlg, IDC_EDIT_TZ_OFFSET), !useSystem);
+            if (s_ready) ApplyLive(hdlg, FALSE);
             return TRUE;
         }
 
         /* 显示模式单选 → 实时预览（模式变化需要重建窗口） */
         if (notify == BN_CLICKED && s_ready &&
-            (id == IDC_RADIO_DESKTOP || id == IDC_RADIO_PASSTHROUGH ||
-             id == IDC_RADIO_FLOAT)) {
+            (id == IDC_RADIO_DESKTOP || id == IDC_RADIO_DESKTOP_COMPAT ||
+             id == IDC_RADIO_PASSTHROUGH || id == IDC_RADIO_FLOAT)) {
             ApplyLive(hdlg, TRUE);
             return TRUE;
         }
@@ -592,112 +830,146 @@ static DLGTEMPLATE* CreateDialogTemplate(void)
     DlgBuilder b;
     int i;
 
-    static const int radioIds[] = { IDC_RADIO_DESKTOP, IDC_RADIO_PASSTHROUGH, IDC_RADIO_FLOAT };
-    static const LPCWSTR radioLabels[] = { L"贴桌面", L"穿透置顶", L"浮动窗" };
+    static const int radioIds[] = { IDC_RADIO_DESKTOP, IDC_RADIO_DESKTOP_COMPAT,
+                                    IDC_RADIO_PASSTHROUGH, IDC_RADIO_FLOAT };
+    static const LPCWSTR radioLabels[] = { L"[原生]贴桌面", L"[兼容]贴桌面", L"穿透", L"浮动" };
+    static const int radioX[] = { 14, 14, 170, 170 };
+    static const int radioY[] = { 18, 36, 18, 36 };
+    static const int radioW[] = { 140, 140, 64, 64 };
     static const int colorStaticIds[] = { IDC_STATIC_TEXTCOLOR, IDC_STATIC_CDCOLOR, IDC_STATIC_BACKCOLOR };
     static const int colorBtnIds[] = { IDC_BTN_TEXTCOLOR, IDC_BTN_CDCOLOR, IDC_BTN_BACKCOLOR };
     static const LPCWSTR colorLabels[] = { L"文字颜色", L"倒计时颜色", L"背景颜色" };
 
-    DlgBegin(&b, buffer, 284, 254, L"设置");
+    DlgBegin(&b, buffer, 320, 318, L"设置");
 
     /* ---- 显示模式 ---- */
     DlgAddAtom(&b, ATOM_BUTTON, WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0,
-               8, 6, 268, 42, 0xFFFF, L"显示模式");
-    for (i = 0; i < 3; i++) {
+               8, 6, 304, 64, 0xFFFF, L"显示模式");
+    for (i = 0; i < 4; i++) {
         DlgAddAtom(&b, ATOM_BUTTON,
                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON |
                    (i == 0 ? WS_GROUP : 0), 0,
-                   20 + i * 86, 22, 82, 12, radioIds[i], radioLabels[i]);
+                   radioX[i], radioY[i], radioW[i], 12, radioIds[i], radioLabels[i]);
     }
+    DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE, 0,
+               16, 54, 288, 12, 0xFFFF, L"原生贴桌面失效时，请改用兼容");
 
     /* ---- 显示文字 ----（WS_GROUP 用于结束上面的单选按钮组） */
     DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE | WS_GROUP, 0,
-               12, 58, 56, 12, 0xFFFF, L"显示文字:");
+               12, 80, 64, 12, 0xFFFF, L"显示文字:");
     DlgAddAtom(&b, ATOM_EDIT,
                WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, 0,
-               74, 56, 202, 14, IDC_EDIT_TEXT, NULL);
+               80, 78, 228, 14, IDC_EDIT_TEXT, NULL);
 
-    /* ---- 目标时间 ---- */
+    /* ---- 目标时间（系统日期时间选择器） ---- */
     DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE, 0,
-               12, 76, 56, 12, 0xFFFF, L"目标时间:");
-    DlgAddAtom(&b, ATOM_EDIT,
-               WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, 0,
-               74, 74, 202, 14, IDC_EDIT_TARGET, NULL);
+               12, 98, 64, 12, 0xFFFF, L"目标时间:");
+    DlgAddClass(&b, DATETIMEPICK_CLASSW,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0,
+        80, 96, 228, 16, IDC_DTP_TARGET, NULL);
 
-    /* ---- 字体名称 ---- */
+    /* ---- 时区 ---- */
     DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE, 0,
-               12, 94, 56, 12, 0xFFFF, L"字体名称:");
-    DlgAddAtom(&b, ATOM_EDIT,
-               WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, 0,
-               74, 92, 202, 14, IDC_EDIT_FONTNAME, NULL);
+               12, 116, 64, 12, 0xFFFF, L"时区:");
+    DlgAddAtom(&b, ATOM_BUTTON,
+               WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX, 0,
+               80, 116, 70, 12, IDC_CHK_SYSTEM_TZ, L"跟随系统");
+    DlgAddClass(&b, L"ComboBox",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL |
+        CBS_DROPDOWNLIST, WS_EX_CLIENTEDGE,
+        156, 114, 152, 200, IDC_EDIT_TZ_OFFSET, NULL);
 
-    /* ---- 字号 ---- */
+    /* ---- 字体名称（系统字体下拉框） ---- */
     DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE, 0,
-               12, 112, 56, 12, 0xFFFF, L"文字字号:");
+               12, 134, 64, 12, 0xFFFF, L"字体名称:");
+    DlgAddClass(&b, L"ComboBox",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL |
+        CBS_DROPDOWNLIST, WS_EX_CLIENTEDGE,
+        80, 132, 228, 200, IDC_COMBO_FONT, NULL);
+
+    /* ---- 文字字号 ---- */
+    DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE, 0,
+               12, 152, 88, 12, 0xFFFF, L"文字字号:");
     DlgAddAtom(&b, ATOM_EDIT,
                WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_NUMBER, 0,
-               74, 110, 52, 14, IDC_EDIT_FONTSIZE, NULL);
+               104, 150, 46, 14, IDC_EDIT_FONTSIZE, NULL);
+    DlgAddClass(&b, TRACKBAR_CLASSW,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_HORZ | TBS_BOTTOM, 0,
+                156, 150, 152, 16, IDC_SLIDER_FONTSIZE, NULL);
+
+    /* ---- 倒计时字号 ---- */
     DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE, 0,
-               140, 112, 70, 12, 0xFFFF, L"倒计时字号:");
+               12, 170, 88, 12, 0xFFFF, L"倒计时字号:");
     DlgAddAtom(&b, ATOM_EDIT,
                WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_NUMBER, 0,
-               214, 110, 62, 14, IDC_EDIT_CDFONTSIZE, NULL);
+               104, 168, 46, 14, IDC_EDIT_CDFONTSIZE, NULL);
+    DlgAddClass(&b, TRACKBAR_CLASSW,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_HORZ | TBS_BOTTOM, 0,
+                156, 168, 152, 16, IDC_SLIDER_CDFONTSIZE, NULL);
 
     /* ---- 颜色（标签 / 预览 / 选择按钮） ---- */
     for (i = 0; i < 3; i++) {
         DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE, 0,
-                   12 + i * 92, 134, 88, 12, 0xFFFF, colorLabels[i]);
+                   12 + i * 100, 190, 96, 12, 0xFFFF, colorLabels[i]);
     }
     for (i = 0; i < 3; i++) {
         DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, 0,
-                   12 + i * 92, 148, 28, 16, colorStaticIds[i], NULL);
+                   12 + i * 100, 204, 28, 16, colorStaticIds[i], NULL);
     }
     for (i = 0; i < 3; i++) {
         DlgAddAtom(&b, ATOM_BUTTON,
                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0,
-                   44 + i * 92, 148, 40, 16, colorBtnIds[i], L"...");
+                   44 + i * 100, 204, 40, 16, colorBtnIds[i], L"...");
     }
 
     /* ---- 背景不透明度 ---- */
     DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE, 0,
-               12, 176, 70, 12, 0xFFFF, L"不透明度:");
+               12, 226, 88, 12, 0xFFFF, L"不透明度:");
     DlgAddClass(&b, TRACKBAR_CLASSW,
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_HORZ | TBS_BOTTOM, 0,
-                86, 174, 154, 16, IDC_SLIDER_OPACITY, NULL);
+                104, 224, 170, 16, IDC_SLIDER_OPACITY, NULL);
     DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE, 0,
-               246, 176, 30, 12, IDC_LABEL_OPACITY, L"150");
+               280, 226, 28, 12, IDC_LABEL_OPACITY, L"150");
 
-    /* ---- 内边距 / 行距 ---- */
+    /* ---- 内边距 ---- */
     DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE, 0,
-               12, 200, 56, 12, 0xFFFF, L"内边距:");
+               12, 244, 88, 12, 0xFFFF, L"内边距:");
     DlgAddAtom(&b, ATOM_EDIT,
                WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_NUMBER, 0,
-               74, 198, 52, 14, IDC_EDIT_PADDING, NULL);
+               104, 242, 46, 14, IDC_EDIT_PADDING, NULL);
+    DlgAddClass(&b, TRACKBAR_CLASSW,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_HORZ | TBS_BOTTOM, 0,
+                156, 242, 152, 16, IDC_SLIDER_PADDING, NULL);
+
+    /* ---- 行距 ---- */
     DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE, 0,
-               140, 200, 70, 12, 0xFFFF, L"行距:");
+               12, 262, 88, 12, 0xFFFF, L"行距:");
     DlgAddAtom(&b, ATOM_EDIT,
                WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_NUMBER, 0,
-               214, 198, 62, 14, IDC_EDIT_LINESPACING, NULL);
+               104, 260, 46, 14, IDC_EDIT_LINESPACING, NULL);
+    DlgAddClass(&b, TRACKBAR_CLASSW,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_HORZ | TBS_BOTTOM, 0,
+                156, 260, 152, 16, IDC_SLIDER_LINESPACING, NULL);
 
     /* ---- 确定 / 取消 ---- */
     DlgAddAtom(&b, ATOM_BUTTON,
                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 0,
-               96, 224, 72, 20, IDOK, L"确定");
+               108, 286, 72, 20, IDOK, L"确定");
     DlgAddAtom(&b, ATOM_BUTTON,
                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0,
-               180, 224, 72, 20, IDCANCEL, L"取消");
+               200, 286, 72, 20, IDCANCEL, L"取消");
 
     return DlgEnd(&b);
 }
 
 void ShowSettingsDialog(HWND parent)
 {
-    /* 初始化通用控件（滑块需要） */
+    /* 初始化通用控件（滑块 + 日期时间选择器需要） */
     INITCOMMONCONTROLSEX icc;
     DLGTEMPLATE* dlgTemplate;
 
     icc.dwSize = sizeof(icc);
-    icc.dwICC = ICC_BAR_CLASSES;
+    icc.dwICC = ICC_BAR_CLASSES | ICC_DATE_CLASSES;
     InitCommonControlsEx(&icc);
 
     dlgTemplate = CreateDialogTemplate();

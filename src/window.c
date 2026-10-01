@@ -1,17 +1,45 @@
 ﻿#include "lilith_timer.h"
 
-/* 经典形态：含图标层(SHELLDLL_DefView)的顶层窗口，其下一个顶层窗口是壁纸层 WorkerW */
-static BOOL CALLBACK FindWorkerWProc(HWND hwnd, LPARAM lParam)
+/* 判断一个窗口是否为“壁纸层” WorkerW：
+   类名必须是 WorkerW，且不含 SHELLDLL_DefView（图标层）子窗口。
+   这是识别壁纸层的核心特征，Wallpaper Engine / Fences 环境下也成立。 */
+static BOOL IsWallpaperWorkerW(HWND hwnd)
+{
+    WCHAR cls[32];
+    if (!hwnd || !IsWindow(hwnd)) return FALSE;
+    GetClassNameW(hwnd, cls, COUNT_OF(cls));
+    if (wcscmp(cls, L"WorkerW") != 0) return FALSE;
+    if (FindWindowExW(hwnd, NULL, L"SHELLDLL_DefView", NULL) != NULL) return FALSE;
+    return TRUE;
+}
+
+/* 回调：递归枚举 Progman 子孙，找到第一个壁纸层 WorkerW */
+static BOOL CALLBACK EnumWallpaperWwProc(HWND hwnd, LPARAM lParam)
+{
+    HWND* result = (HWND*)lParam;
+    if (*result) return FALSE;
+    if (IsWallpaperWorkerW(hwnd)) { *result = hwnd; return FALSE; }
+    return TRUE;
+}
+
+/* 回调：枚举顶层窗口，找“含 DefView 的窗口的下一个兄弟 WorkerW” */
+static BOOL CALLBACK EnumTopNextWwProc(HWND hwnd, LPARAM lParam)
 {
     HWND* result = (HWND*)lParam;
     if (*result) return FALSE;
     if (FindWindowExW(hwnd, NULL, L"SHELLDLL_DefView", NULL) != NULL) {
         HWND next = GetWindow(hwnd, GW_HWNDNEXT);
-        WCHAR cls[32] = L"";
-        if (next) GetClassNameW(next, cls, COUNT_OF(cls));
-        if (next && wcscmp(cls, L"WorkerW") == 0)
-            *result = next;
+        if (IsWallpaperWorkerW(next)) { *result = next; return FALSE; }
     }
+    return TRUE;
+}
+
+/* 回调：枚举所有顶层 WorkerW，返回第一个不含 DefView 的（兜底） */
+static BOOL CALLBACK EnumAnyWallpaperWwProc(HWND hwnd, LPARAM lParam)
+{
+    HWND* result = (HWND*)lParam;
+    if (*result) return FALSE;
+    if (IsWallpaperWorkerW(hwnd)) { *result = hwnd; return FALSE; }
     return TRUE;
 }
 
@@ -43,43 +71,194 @@ static void LogHostInfo(const WCHAR* tag, HWND host)
 static HWND FindDesktopHost(void)
 {
     HWND progman = FindWindowW(L"Progman", NULL);
-    HWND host;
+    HWND host = NULL;
+    int attempt;
 
     if (!progman) {
         DbgLog(L"贴桌面宿主：找不到 Progman!");
         return NULL;
     }
 
-    SendMessageTimeoutW(progman, 0x052C, 0xD, 1, SMTO_NORMAL, 200, NULL);
-    SendMessageTimeoutW(progman, 0x052C, 0,   0, SMTO_NORMAL, 200, NULL);
+    /* 触发 WorkerW 分裂：Win11 需要 (0xD,1)，老系统用 (0,0)，两个都发；
+       超时从 200ms 提高到 1000ms，复杂环境下消息处理可能更慢 */
+    SendMessageTimeoutW(progman, 0x052C, 0xD, 1, SMTO_NORMAL, 1000, NULL);
+    SendMessageTimeoutW(progman, 0x052C, 0x0, 0, SMTO_NORMAL, 1000, NULL);
 
-    /* Win11 常见形态：WorkerW 是 Progman 的子窗口 */
-    host = FindWindowExW(progman, NULL, L"WorkerW", NULL);
-    while (host) {
-        if (FindWindowExW(host, NULL, L"SHELLDLL_DefView", NULL) == NULL) {
-            LogHostInfo(L"Progman的子WorkerW", host);
-            return host;   /* 不含图标层的那个才是壁纸层 */
-        }
-        host = FindWindowExW(progman, host, L"WorkerW", NULL);
-    }
+    /* 关键：给 Explorer / Wallpaper Engine / Fences 时间完成窗口树的创建和重排，
+       没有这个等待，紧接着的查找往往看到的是「半成品」的窗口层级 */
+    Sleep(500);
 
-    /* 经典形态：WorkerW 是顶层窗口 */
+    /* 策略 1：Progman 子孙中递归找不含 DefView 的 WorkerW
+       （Win11 24H2+ 和 Wallpaper Engine 环境下，壁纸层常常是 Progman 的后代） */
     host = NULL;
-    EnumWindows(FindWorkerWProc, (LPARAM)&host);
-    if (host && IsWindow(host)) {
-        LogHostInfo(L"顶层WorkerW", host);
-        return host;
-    }
+    EnumChildWindows(progman, EnumWallpaperWwProc, (LPARAM)&host);
+    if (host) { LogHostInfo(L"Progman子孙WorkerW", host); return host; }
 
-    /* 兜底：Progman 本体 */
+    /* 策略 2：经典顶层形态——含 DefView 的窗口的下一个兄弟 WorkerW，
+       重试 3 次，覆盖 Explorer 异步重建窗口的情况 */
+    for (attempt = 0; attempt < 3 && !host; attempt++) {
+        EnumWindows(EnumTopNextWwProc, (LPARAM)&host);
+        if (!host) Sleep(300);
+    }
+    if (host) { LogHostInfo(L"顶层WorkerW(DefView兄弟)", host); return host; }
+
+    /* 策略 3：兜底——任意不含 DefView 的顶层 WorkerW */
+    EnumWindows(EnumAnyWallpaperWwProc, (LPARAM)&host);
+    if (host) { LogHostInfo(L"顶层WorkerW(兜底)", host); return host; }
+
+    /* 最后兜底：Progman 本体（后面挂载时会被压到 DefView 之下） */
     LogHostInfo(L"兜底Progman", progman);
     return progman;
+}
+
+/* 把计时器窗口挂到桌面宿主下，成功返回 TRUE。
+   包含样式转换、SetParent、坐标换算、Z-order 调整、挂载验证。 */
+static BOOL TryMountToDesktop(HWND hwnd, HWND host)
+{
+    LONG_PTR st;
+    POINT pt;
+    HWND defView;
+
+    if (!hwnd || !host || !IsWindow(hwnd) || !IsWindow(host)) return FALSE;
+
+    /* 样式彻底转为子窗口：清掉一切顶层样式，加上 WS_CHILD。
+       原来的做法只清 WS_POPUP 不够，残留的 WS_THICKFRAME/WS_CAPTION
+       可能导致 SetParent 后窗口表现异常 */
+    st = GetWindowLongPtrW(hwnd, GWL_STYLE);
+    st &= ~(LONG_PTR)(WS_POPUP | WS_CAPTION | WS_THICKFRAME |
+        WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+    st |= WS_CHILD;
+    SetWindowLongPtrW(hwnd, GWL_STYLE, st);
+
+    if (!SetParent(hwnd, host)) {
+        DbgLog(L"SetParent 失败: err=%lu", (unsigned long)GetLastError());
+        return FALSE;
+    }
+
+    /* 屏幕坐标 -> 宿主客户区坐标 */
+    pt.x = g_cfg.x;
+    pt.y = g_cfg.y;
+    ScreenToClient(host, &pt);
+
+    SetWindowPos(hwnd, NULL, pt.x, pt.y, 0, 0,
+        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+
+    /* Z-order：
+       - 宿主含 DefView（Progman / 图标层 WorkerW）→ 压到 DefView 之下
+       - 宿主是壁纸层 WorkerW                     → 直接置底 */
+    defView = FindWindowExW(host, NULL, L"SHELLDLL_DefView", NULL);
+    if (defView)
+        SetWindowPos(hwnd, defView, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    else
+        SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
+    /* 挂载验证：GetParent 必须等于 host，否则说明 SetParent 表面成功实际失效 */
+    if (GetParent(hwnd) != host) {
+        DbgLog(L"挂载验证失败：GetParent=%p，期望=%p",
+            (void*)GetParent(hwnd), (void*)host);
+        return FALSE;
+    }
+    DbgLog(L"挂载成功 | 宿主客户区坐标=(%ld,%ld)", (long)pt.x, (long)pt.y);
+    return TRUE;
+}
+
+/*===========================================================================
+ * [兼容]贴桌面模式：顶层透明窗口 + Z-Order 动态守护（路线一）
+ *
+ * 不做 SetParent / WS_CHILD，而是维持一个独立的顶层分层窗口：
+ *   - 点击穿透：WS_EX_TRANSPARENT + WM_NCHITTEST 返回 HTTRANSPARENT；
+ *   - 永不抢焦点、不出现在任务栏：WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW；
+ *   - 层级：SetWindowPos(HWND_BOTTOM, ...) 压在“壁纸之上、图标/普通窗口之下”。
+ *
+ * 守护策略：只监听 EVENT_SYSTEM_FOREGROUND（前台切换，频率低、有意义），
+ * 再加上看门狗定时器兜底；同时做节流 + “已就位则跳过”检测，避免和
+ * Wallpaper Engine / Fences 的窗口重排互相纠缠，造成一劲的闪烁。
+ *===========================================================================*/
+
+static HWINEVENTHOOK s_hookForeground = NULL;
+static volatile LONG  s_guardPending = 0;
+static DWORD          s_lastGuardTick = 0;   /* 上次压底时刻（节流） */
+
+/* 判断一个窗口是否为桌面层（Progman 或壁纸 WorkerW），用于“已就位”检测 */
+static BOOL IsDesktopLayerWindow(HWND hwnd)
+{
+    WCHAR cls[32];
+    if (!hwnd || !IsWindow(hwnd)) return FALSE;
+    GetClassNameW(hwnd, cls, COUNT_OF(cls));
+    if (wcscmp(cls, L"Progman") == 0) return TRUE;
+    return IsWallpaperWorkerW(hwnd);   /* WorkerW 且不含 SHELLDLL_DefView */
+}
+
+/* 把兼容贴桌面窗口固定到正确的层级 */
+void CompatZOrderGuard(void)
+{
+    HWND fence, above, below;
+    DWORD now;
+
+    if (g_bEditMode || g_bExiting) return;
+    if (g_cfg.mode != MODE_DESKTOP_COMPAT) return;
+    if (!g_hwndTimer || !IsWindow(g_hwndTimer)) return;
+
+    /* 节流：至少间隔 1000ms 才允许再压一次，打断与其他贴底应用的拉锯 */
+    now = GetTickCount();
+    if (now - s_lastGuardTick < 1000) return;
+
+    fence = FindWindowW(L"FenceClass", NULL);
+    if (fence && IsWindowVisible(fence)) {
+        /* 已经在 Fences 容器正后方就无需再动 */
+        above = GetWindow(g_hwndTimer, GW_HWNDPREV);
+        if (above == fence) return;
+        s_lastGuardTick = now;
+        SetWindowPos(g_hwndTimer, fence, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    } else {
+        /* 已经在最底层（下方无窗口，或下方只剩壁纸层）就无需再动 */
+        below = GetWindow(g_hwndTimer, GW_HWNDNEXT);
+        if (below == NULL || IsDesktopLayerWindow(below)) return;
+        s_lastGuardTick = now;
+        SetWindowPos(g_hwndTimer, HWND_BOTTOM, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+}
+
+/* WinEvent 回调：只投递一条消息，合并突发事件，避免事件风暴灌满消息队列 */
+static void CALLBACK CompatWinEventProc(HWINEVENTHOOK hook, DWORD event,
+    HWND hwnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD time)
+{
+    (void)hook; (void)event; (void)hwnd; (void)idObject; (void)idChild;
+    (void)idEventThread; (void)time;
+
+    if (!g_hwndMsg) return;
+    if (InterlockedExchange(&s_guardPending, 1) == 0)
+        PostMessageW(g_hwndMsg, WM_APP_COMPAT_GUARD, 0, 0);
+}
+
+void CompatGuardInstall(void)
+{
+    if (s_hookForeground) return;
+    s_hookForeground = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+        NULL, CompatWinEventProc, 0, 0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    DbgLog(L"兼容贴桌面：WinEvent 钩子已挂接 (foreground=%p)",
+        (void*)s_hookForeground);
+}
+
+void CompatGuardUninstall(void)
+{
+    if (s_hookForeground) { UnhookWinEvent(s_hookForeground); s_hookForeground = NULL; }
+}
+
+void CompatGuardPump(void)
+{
+    InterlockedExchange(&s_guardPending, 0);
+    CompatZOrderGuard();
 }
 
 void CreateTimerWindow(void)
 {
     DWORD style, exstyle;
-    HWND parent = NULL;
     WCHAR cd[128];
     HDC hdc;
     HFONT f1, f2;
@@ -90,7 +269,6 @@ void CreateTimerWindow(void)
     if (g_bEditMode) {
         style   = WS_POPUP | WS_THICKFRAME;
         exstyle = WS_EX_TOOLWINDOW;
-        parent  = NULL;
         
         if (g_cfg.w > 0 && g_cfg.h > 0) {
             W = g_cfg.w;
@@ -124,9 +302,8 @@ void CreateTimerWindow(void)
     } else {
         switch (g_cfg.mode) {
         case MODE_DESKTOP:
-            parent = FindDesktopHost();
-            /* 一律先创建为本进程顶层窗口，成功后再 SetParent 挂到桌面宿主。
-               直接以跨进程窗口(explorer 的 WorkerW/Progman)为父创建子窗口
+            /* [原生]贴桌面：一律先创建为本进程顶层窗口，成功后再 SetParent 挂到
+               桌面宿主。直接以跨进程窗口(explorer 的 WorkerW/Progman)为父创建子窗口
                在部分 Win10/11 上会失败（CreateWindowExW 返回 NULL 且错误码为 0） */
             style   = WS_POPUP;
             exstyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT;
@@ -135,10 +312,17 @@ void CreateTimerWindow(void)
             if (!g_bDesktopPlain)
                 exstyle |= WS_EX_LAYERED;
             break;
+        case MODE_DESKTOP_COMPAT:
+            /* [兼容]贴桌面（路线一）：顶层分层窗口 + WS_EX_TRANSPARENT，不挂载、
+               不置顶，靠 CompatZOrderGuard 动态守护固定在“壁纸之上、图标/普通窗口之下” */
+            style = WS_POPUP;
+            exstyle = WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
+            break;
         case MODE_PASSTHROUGH:
-            style   = WS_POPUP;
+            /* 穿透：置顶 + 点击穿透（依赖 WS_EX_TRANSPARENT 扩展样式） */
+            style = WS_POPUP;
             exstyle = WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE |
-                      WS_EX_TRANSPARENT | WS_EX_TOPMOST;
+                WS_EX_TRANSPARENT | WS_EX_TOPMOST;
             break;
         default:
             style   = WS_POPUP;
@@ -193,33 +377,27 @@ void CreateTimerWindow(void)
 
     if (!g_bEditMode && g_cfg.mode == MODE_PASSTHROUGH)
         SetWindowPos(g_hwndTimer, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    else if (!g_bEditMode && g_cfg.mode == MODE_DESKTOP_COMPAT)
+        CompatZOrderGuard();   /* [兼容]贴桌面：首次直接压到底层 */
     else if (!g_bEditMode && g_cfg.mode == MODE_DESKTOP) {
-      if (parent) {
-        /* 跨进程挂载到桌面宿主：先改成子窗口样式再 SetParent（壁纸引擎通用做法） */
-        LONG_PTR st = GetWindowLongPtrW(g_hwndTimer, GWL_STYLE);
-        SetWindowLongPtrW(g_hwndTimer, GWL_STYLE, (st & ~WS_POPUP) | WS_CHILD);
-        if (SetParent(g_hwndTimer, parent)) {
-            POINT pt2;
-            HWND defView;
-            pt2.x = g_cfg.x; pt2.y = g_cfg.y;
-            ScreenToClient(parent, &pt2);   /* 子窗口改用宿主客户区坐标 */
-            DbgLog(L"SetParent 挂载成功 | 宿主客户区坐标=(%ld,%ld)", (long)pt2.x, (long)pt2.y);
-            SetWindowPos(g_hwndTimer, NULL, pt2.x, pt2.y, 0, 0,
-                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-            /* 挂到 Progman 时需压到图标层(DefView)之下；挂到壁纸 WorkerW 时置底即可 */
-            defView = FindWindowExW(parent, NULL, L"SHELLDLL_DefView", NULL);
-            if (defView)
-                SetWindowPos(g_hwndTimer, defView, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            else
-                SetWindowPos(g_hwndTimer, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        } else {
-            DbgLog(L"SetParent 挂载失败: err=%lu，退化为普通底层窗口", (unsigned long)GetLastError());
-            SetWindowPos(g_hwndTimer, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        /* 挂载重试 3 次：Wallpaper Engine / Fences 会让 Explorer 异步
+           重建窗口树，单次挂载失败很常见，重试一般能成功 */
+        BOOL mounted = FALSE;
+        int retry;
+        for (retry = 0; retry < 3 && !mounted; retry++) {
+            HWND h = FindDesktopHost();
+            if (h && TryMountToDesktop(g_hwndTimer, h)) {
+                mounted = TRUE;
+                break;
+            }
+            DbgLog(L"贴桌面挂载第 %d 次失败，准备重试", retry + 1);
+            Sleep(400);
         }
-      } else {
-        /* 连 Progman 都找不到：保持顶层窗口并置底（等价于降级显示） */
-        SetWindowPos(g_hwndTimer, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-      }
+        if (!mounted) {
+            DbgLog(L"贴桌面挂载全部失败，退化为普通底层窗口");
+            SetWindowPos(g_hwndTimer, HWND_BOTTOM, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
     }
 
     ShowWindow(g_hwndTimer, SW_SHOWNOACTIVATE);
@@ -319,6 +497,29 @@ LRESULT CALLBACK TimerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             FillRect(hdc, &r2, hbrush);
             FillRect(hdc, &r3, hbrush);
             FillRect(hdc, &r4, hbrush);
+
+            /* 顶部提示条：告知用户如何退出编辑模式 */
+            {
+                int tipH = 22;
+                RECT tipRc = { 2, 2, rc.right - 2, 2 + tipH };
+                HBRUSH tipBg = CreateSolidBrush(RGB(255, 100, 100));
+                HFONT tipFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                    CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+                    DEFAULT_PITCH, L"微软雅黑");
+                HGDIOBJ oldTipFont = SelectObject(hdc, tipFont);
+                SetBkMode(hdc, TRANSPARENT);
+                SetTextColor(hdc, RGB(255, 255, 255));
+                FillRect(hdc, &tipRc, tipBg);
+                DrawTextW(hdc,
+                    L"编辑模式 — 右键托盘图标 → 取消勾选「编辑」即可退出",
+                    -1, &tipRc,
+                    DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+                SelectObject(hdc, oldTipFont);
+                DeleteObject(tipFont);
+                DeleteObject(tipBg);
+            }
+
             DeleteObject(hbrush);
         } else {
             /* 非编辑模式：透明背景，由 RenderLayered 处理 */
@@ -349,8 +550,9 @@ LRESULT CALLBACK TimerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         SelectObject(hdc, old);
         
         int contentH = h1 + g_cfg.lineSpacing + h2;
-        int startY = (rc.bottom - contentH) / 2;
-        if (startY < 0) startY = 0;
+        int topReserve = g_bEditMode ? 26 : 0;   /* 编辑模式给提示条留出空间 */
+        int startY = topReserve + ((rc.bottom - topReserve) - contentH) / 2;
+        if (startY < topReserve) startY = topReserve;
         
         old = SelectObject(hdc, f1);
         SetTextColor(hdc, g_cfg.textColor);
@@ -380,6 +582,10 @@ LRESULT CALLBACK TimerWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             LRESULT hit = DefWindowProcW(hwnd, msg, wParam, lParam);
             if (hit == HTCLIENT) hit = HTCAPTION;
             return hit;
+        }
+        if (!g_bEditMode && g_cfg.mode == MODE_DESKTOP_COMPAT) {
+            /* [兼容]贴桌面：告诉 Windows 忽略此窗口点击，将消息投递给下层窗口 */
+            return HTTRANSPARENT;
         }
         return DefWindowProcW(hwnd, msg, wParam, lParam);
 

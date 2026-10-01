@@ -40,7 +40,13 @@ static LRESULT CALLBACK MsgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
                 if (!g_hwndTimer || !IsWindow(g_hwndTimer))
                     RecreateTimerWindow();
             }
+            /* [兼容]穿透：定时守护 Z-Order（钩子之外的兜底保险） */
+            CompatZOrderGuard();
         }
+        return 0;
+
+    case WM_APP_COMPAT_GUARD:
+        CompatGuardPump();
         return 0;
 
     case WM_APP_TRAYICON:
@@ -78,6 +84,7 @@ static LRESULT CALLBACK MsgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             g_bExiting = TRUE;
             KillTimer(hwnd, IDT_COUNTDOWN);
             KillTimer(hwnd, IDT_WATCHDOG);
+            CompatGuardUninstall();
             SaveWindowPlacement();
             DestroyTimerWindow();
             TrayRemove();
@@ -90,6 +97,7 @@ static LRESULT CALLBACK MsgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         KillTimer(hwnd, IDT_COUNTDOWN);
         KillTimer(hwnd, IDT_WATCHDOG);
         UnregisterHotKey(hwnd, IDH_TRAY_MENU);
+        CompatGuardUninstall();
         SaveWindowPlacement();
         DestroyTimerWindow();
         TrayRemove();
@@ -177,6 +185,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                                 WS_OVERLAPPED, 0, 0, 0, 0,
                                 NULL, NULL, hInstance, NULL);
     if (!g_hwndMsg) goto fail;
+
+    /* [兼容]贴桌面：挂接 WinEvent 钩子，响应前台窗口切换 */
+    CompatGuardInstall();
 
     TrayAdd();
     /* 全局热键兜底：托盘图标不可用时（通知区域被隐藏的系统）仍能弹出菜单 */

@@ -16,11 +16,29 @@
 - 修复：启动时 SideBySide 配置错误（改用链接器自动生成 manifest）
 - 优化：目标时间输入框增加灰色提示与气泡说明，格式错误时自动聚焦并全选
 
+### v1.1.0
+
+- 新增：贴桌面模式拆分为「[原生]贴桌面」与「[兼容]贴桌面」两种
+  - [原生]贴桌面：SetParent 挂载到 WorkerW/Progman（原有挂载流）
+  - [兼容]贴桌面：顶层分层窗口 + 点击穿透，不挂载，通过 Z-Order 动态守护
+    固定在“壁纸之上、桌面图标/普通窗口之下”，并挂接 WinEvent 钩子响应
+    Wallpaper Engine / Fences 的窗口重排；同时修复了与之相关的闪烁问题
+- 提示：若 [原生]贴桌面 在复杂桌面环境（如 Fences、Wallpaper Engine）下失效，
+  请在设置中切换到 [兼容]贴桌面
+- 设置界面增强：
+  - 字体名称改为下拉框，直接选择系统已安装字体
+  - 文字字号 / 倒计时字号 / 内边距 / 行距 均新增滑动条，与输入框双向联动
+  - 目标时间改用系统日期时间选择器（日历 + 微调按钮）
+- 加固：目标时间解析（支持仅日期输入、尾随校验、大小月/闰年、越界收敛等）
+- 工程：MSVC 统一按 UTF-8 编译，源文件统一为 UTF-8 带 BOM
+
 ## 功能特性
 
 - 原生 Win32 API，轻量级无依赖
 - 支持系统托盘
 - 自定义渲染
+- 四种显示模式：[原生]贴桌面 / [兼容]贴桌面 / 穿透 / 浮动
+- 设置界面：系统字体下拉框、数字滑动条、系统日期时间选择器
 - 通过 `lilith_timer.ini` 配置文件进行设置
 - 支持 Visual Studio 和 Makefile 两种构建方式
 
@@ -79,7 +97,7 @@ LilithTimer/
 
 ## 许可证
 
-*(如果你想开源，可以在这里添加许可证，例如 MIT)*
+*MIT*
 
 ---
 
@@ -101,11 +119,31 @@ The idea started when I was trying to find a countdown timer for the Gaokao (Chi
 - Fixed: SideBySide configuration error at startup (switched to linker-generated manifest)
 - Improved: Date input now shows a gray cue banner and a balloon tooltip; invalid input is automatically focused and selected
 
+### v1.1.0
+
+- Added: Desktop mode split into "[Native] Desktop" and "[Compat] Desktop"
+  - [Native] Desktop: SetParent mounting onto WorkerW/Progman (original flow)
+  - [Compat] Desktop: top-level layered window with click-through, no mounting;
+    kept on the desktop via dynamic Z-Order guarding (WinEvent hook); also fixed
+    the related flickering caused by fighting with Wallpaper Engine / Fences
+- Hint: if [Native] Desktop fails in complex environments (Fences / Wallpaper Engine),
+  switch to [Compat] Desktop in settings
+- Settings UI improvements:
+  - Font name is now a dropdown listing installed system fonts
+  - Text size / countdown size / padding / line spacing now have sliders, synced
+    bidirectionally with the number boxes
+  - Target time now uses the native date-time picker (calendar + spinner)
+- Hardened: target time parsing (date-only input, trailing validation,
+  days-per-month / leap year, bounds clamping)
+- Build: MSVC now compiles sources as UTF-8; all sources normalized to UTF-8 BOM
+
 ## Features
 
 - Native Win32 API, lightweight and dependency-free
 - System tray support
 - Custom rendering
+- Four display modes: [Native] Desktop / [Compat] Desktop / Passthrough / Float
+- Settings UI: system font dropdown, numeric sliders, native date-time picker
 - Configurable via `lilith_timer.ini`
 - Supports both Visual Studio and Makefile builds
 
