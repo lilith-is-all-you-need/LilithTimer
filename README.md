@@ -97,7 +97,7 @@ LilithTimer/
 
 ## 许可证
 
-*MIT*
+本项目采用 [MIT](LICENSE) 许可证。
 
 ---
 
@@ -202,4 +202,4 @@ LilithTimer/
 
 ## License
 
-*MIT*
+This project is licensed under the [MIT](LICENSE) license.
