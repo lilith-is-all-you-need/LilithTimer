@@ -2,6 +2,10 @@
 
 一个使用 C 语言编写的轻量级 Win32 计时器。
 
+## 项目背景
+
+本来只是想给学校找一个能作为高考倒计时的软件，但发现市面上同类软件要么需要付费开通 VIP，要么体积臃肿、附带许多无关功能。于是干脆自己用 AI 工具搓了一版轻量级的，无广告、无多余负担，只专注倒计时本身。
+
 ## 功能特性
 
 - 原生 Win32 API，轻量级无依赖
@@ -72,6 +76,10 @@ LilithTimer/
 # LilithTimer (English)
 
 A lightweight Win32 timer written in C.
+
+## Background
+
+The idea started when I was trying to find a countdown timer for the Gaokao (Chinese college entrance exam) for my school. Most existing software either required a paid VIP subscription or was too bloated with unnecessary features. So I decided to build a lightweight version myself with the help of AI tools. No ads, no bloat—just a simple and effective countdown timer.
 
 ## Features
 
