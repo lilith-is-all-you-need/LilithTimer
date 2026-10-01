@@ -1,0 +1,50 @@
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.VC.opendb
+*.opendb
+*.db
+*.ipch
+
+# 编译输出
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+ARM/
+ARM64/
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.tlog
+*.log
+*.cache
+*.aps
+*.res
+*.recipe
+*.lastbuildstate
+
+# NuGet / vcpkg / CMake
+packages/
+*.nupkg
+vcpkg_installed/
+build/
+out/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# 用户本地配置
+LilithTimer.vcxproj.user
+lilith_timer.ini

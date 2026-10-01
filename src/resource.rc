@@ -1,0 +1,12 @@
+/* LilithTimer 资源脚本
+ * 更换图标：直接替换同目录下的 icon.ico（托盘与窗体图标都来自它） */
+#include <windows.h>
+
+#ifndef IDI_APP_ICON
+#define IDI_APP_ICON 100   /* 与 lilith_timer.c 中保持一致 */
+#endif
+
+IDI_APP_ICON ICON "icon.ico"
+
+/* 嵌入应用程序清单（DPI 感知 / 系统版本兼容 / Common Controls v6） */
+1 24 "app.manifest"

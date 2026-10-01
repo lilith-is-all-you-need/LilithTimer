@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="LilithTimer/LilithTimer.vcxproj" Id="191cf1d9-0493-47ef-958d-d52e274136ff" />
+</Solution>
