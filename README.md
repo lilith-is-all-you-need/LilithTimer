@@ -164,4 +164,4 @@ LilithTimer/
 
 ## License
 
-*(Add a license if you want, e.g. MIT)*
+*MIT*
