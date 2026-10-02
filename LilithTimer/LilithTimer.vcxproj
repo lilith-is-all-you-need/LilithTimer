@@ -153,15 +153,19 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\src\autorun.c" />
     <ClCompile Include="..\src\config.c" />
     <ClCompile Include="..\src\main.c" />
     <ClCompile Include="..\src\render.c" />
     <ClCompile Include="..\src\settings.c" />
+    <ClCompile Include="..\src\timesync.c" />
     <ClCompile Include="..\src\tray.c" />
     <ClCompile Include="..\src\window.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\src\autorun.h" />
     <ClInclude Include="..\src\lilith_timer.h" />
+    <ClInclude Include="..\src\timesync.h" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>

@@ -1,4 +1,4 @@
-﻿#ifndef LILITH_TIMER_H
+#ifndef LILITH_TIMER_H
 #define LILITH_TIMER_H
 
 #ifndef UNICODE
@@ -30,7 +30,7 @@
 #define APP_NAME     L"LilithTimer"
 #endif
 #ifndef APP_VERSION
-#define APP_VERSION  L"1.1.0"
+#define APP_VERSION  L"1.2.0"
 #endif
 #ifndef ABOUT_TEXT
 #define ABOUT_TEXT L"LilithTimer v" APP_VERSION L"\r\n\r\n桌面倒计时小工具\r\n" L"Dev:LilithIsAllYouNeed\r\n" L"Tool:Kimi K3 Pro"
@@ -90,6 +90,9 @@ typedef struct {
     int w, h;
     BOOL tzUseSystem;      /* TRUE = 跟随系统时区 */
     int  tzOffsetMinutes;  /* 自定义时区偏移，单位分钟，范围 [-720, 840] */
+    BOOL autoStartEnabled; /* 开机自启总开关（默认 TRUE） */
+    int  autoStartMode;    /* 1=每次开机启动；2=每日定时启动（计划任务） */
+    int  autoStartMinutes; /* 每日定时：0..1439，自 00:00 起的分钟数 */
 } AppConfig;
 
 /* 全局变量 */

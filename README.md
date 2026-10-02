@@ -16,6 +16,18 @@
 - 修复：启动时 SideBySide 配置错误（改用链接器自动生成 manifest）
 - 优化：目标时间输入框增加灰色提示与气泡说明，格式错误时自动聚焦并全选
 
+### v1.2.0
+
+- 新增：开机自启 / 定时启动（设置页内开关，默认开启）
+  - 每次开机启动：注册表 Run + 启动文件夹快捷方式 + 计划任务 三重通道冗余，
+    启动时自动校验，失效通道自动补写；exe 移动位置后也能自愈
+  - 每日定时启动：通过计划任务在指定时刻拉起；晚于开机时间时登录通道兜底
+- 新增：启动时网络校时（SNTP，多服务器轮询）
+  - 网络时间与系统时间偏差 ≥2 分钟时弹出自定义提示框（图标 + 时间对比），
+    用户确认后经 UAC 提权执行系统级校时（w32tm /resync，失败回退 SetSystemTime）
+  - 网络超时静默失败，不影响正常使用；用户拒绝则本次继续使用本地时间
+- 修复：UDP 校时改用 select 等待响应（部分系统上 SO_RCVTIMEO 对 UDP recv 误报超时）
+
 ### v1.1.0
 
 - 新增：贴桌面模式拆分为「[原生]贴桌面」与「[兼容]贴桌面」两种
@@ -39,6 +51,10 @@
 - 自定义渲染
 - 四种显示模式：[原生]贴桌面 / [兼容]贴桌面 / 穿透 / 浮动
 - 设置界面：系统字体下拉框、数字滑动条、系统日期时间选择器
+- 开机自启 / 每日定时启动：注册表 Run + 启动文件夹 + 计划任务三重冗余，
+  启动时自动校验、失效自动补写
+- 启动时网络校时（SNTP）：系统时间与网络时间偏差 ≥2 分钟时弹窗询问，
+  确认后 UAC 提权执行系统级校时；超时静默失败
 - 通过 `lilith_timer.ini` 配置文件进行设置
 - 支持 Visual Studio 和 Makefile 两种构建方式
 
@@ -111,6 +127,21 @@ The idea started when I was trying to find a countdown timer for the Gaokao (Chi
 
 ## Changelog
 
+### v1.2.0
+
+- Added: Auto-start on boot / scheduled daily start (enabled by default, toggle in Settings)
+  - Boot start: triple-redundant channels — registry Run key + Startup-folder shortcut +
+    Scheduled Task; verified at every launch and self-healed if broken (survives exe relocation)
+  - Daily scheduled start: Scheduled Task triggers at a user-set time of day;
+    logon channels act as a fallback when the PC boots later than the set time
+- Added: Network time sync on startup (SNTP, multiple servers)
+  - Shows a custom prompt (app icon + time comparison) when the system clock deviates
+    ≥2 minutes; on confirmation, performs a system-level sync via UAC elevation
+    (`w32tm /resync`, falling back to `SetSystemTime`)
+  - Timeouts fail silently; declining keeps local time for the session
+- Fixed: UDP time sync now waits via `select` (on some systems `SO_RCVTIMEO`
+  falsely reports timeouts for UDP recv)
+
 ### v1.0.0
 
 - Fixed: Color distortion caused by swapped red/blue channels
@@ -144,6 +175,10 @@ The idea started when I was trying to find a countdown timer for the Gaokao (Chi
 - Custom rendering
 - Four display modes: [Native] Desktop / [Compat] Desktop / Passthrough / Float
 - Settings UI: system font dropdown, numeric sliders, native date-time picker
+- Auto-start on boot / scheduled daily start: registry Run + Startup folder +
+  Scheduled Task triple redundancy, self-verified and self-healed at launch
+- Network time sync on startup (SNTP): prompts when system clock deviates ≥2 minutes,
+  system-level sync via UAC elevation; silent on timeout
 - Configurable via `lilith_timer.ini`
 - Supports both Visual Studio and Makefile builds
 

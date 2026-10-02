@@ -1,4 +1,4 @@
-﻿#include "lilith_timer.h"
+#include "lilith_timer.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -230,6 +230,10 @@ void CreateDefaultConfig(void)
     WritePrivateProfileStringW(L"Timer", L"UseSystemTZ", L"1", g_iniPath);
     WritePrivateProfileStringW(L"Timer", L"TZOffsetMinutes", L"480", g_iniPath);
 
+    WritePrivateProfileStringW(L"AutoStart", L"Enabled", L"1", g_iniPath);
+    WritePrivateProfileStringW(L"AutoStart", L"Mode", L"1", g_iniPath);
+    WritePrivateProfileStringW(L"AutoStart", L"StartMinutes", L"480", g_iniPath);
+
     WritePrivateProfileStringW(L"Display", L"Mode", L"Desktop", g_iniPath);
 
     WritePrivateProfileStringW(L"Window", L"X", L"200", g_iniPath);
@@ -257,6 +261,11 @@ void LoadConfig(void)
 
     g_cfg.tzUseSystem = GetPrivateProfileIntW(L"Timer", L"UseSystemTZ", 1, g_iniPath) != 0;
     g_cfg.tzOffsetMinutes = ClampInt(GetPrivateProfileIntW(L"Timer", L"TZOffsetMinutes", 480, g_iniPath), -720, 840);
+
+    /* 开机自启：默认开启 + 每次开机（兼容旧 ini：缺省即默认） */
+    g_cfg.autoStartEnabled = GetPrivateProfileIntW(L"AutoStart", L"Enabled", 1, g_iniPath) != 0;
+    g_cfg.autoStartMode    = ClampInt(GetPrivateProfileIntW(L"AutoStart", L"Mode", 1, g_iniPath), 1, 2);
+    g_cfg.autoStartMinutes = ClampInt(GetPrivateProfileIntW(L"AutoStart", L"StartMinutes", 480, g_iniPath), 0, 1439);
 
     g_cfg.targetOk = ParseTargetTime(buf, &g_cfg.targetFt);
 

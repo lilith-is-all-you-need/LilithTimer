@@ -1,4 +1,5 @@
-﻿#include "lilith_timer.h"
+#include "lilith_timer.h"
+#include "autorun.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -35,6 +36,11 @@
 #define IDC_SLIDER_CDFONTSIZE        2026
 #define IDC_SLIDER_PADDING           2027
 #define IDC_SLIDER_LINESPACING       2028
+/* ---- 开机自启 ---- */
+#define IDC_CHK_AUTOSTART            2029   /* 总开关：是否启用自启 */
+#define IDC_RADIO_AS_BOOT            2030   /* 每次开机启动 */
+#define IDC_RADIO_AS_SCHED           2031   /* 每日定时启动 */
+#define IDC_DTP_AS_TIME              2032   /* 定时启动的时刻选择器 */
 
 /* 时区下拉框可选项（分钟偏移 + 显示文本） */
 typedef struct { int minutes; const WCHAR* label; } TzItem;
@@ -98,6 +104,18 @@ static COLORREF s_backColor;
 /* 实时预览：打开对话框时的配置快照（取消时恢复），s_ready 屏蔽初始化期的 EN_CHANGE */
 static AppConfig s_origCfg;
 static BOOL      s_ready = FALSE;
+
+/* 自启区域控件联动：总开关控制全部子控件；定时模式才显示时刻选择器 */
+static void UpdateAutoStartControls(HWND hdlg)
+{
+    BOOL enabled = (IsDlgButtonChecked(hdlg, IDC_CHK_AUTOSTART) == BST_CHECKED);
+    BOOL sched = enabled &&
+                 (IsDlgButtonChecked(hdlg, IDC_RADIO_AS_SCHED) == BST_CHECKED);
+    EnableWindow(GetDlgItem(hdlg, IDC_RADIO_AS_BOOT), enabled);
+    EnableWindow(GetDlgItem(hdlg, IDC_RADIO_AS_SCHED), enabled);
+    ShowWindow(GetDlgItem(hdlg, IDC_DTP_AS_TIME), sched ? SW_SHOW : SW_HIDE);
+    EnableWindow(GetDlgItem(hdlg, IDC_DTP_AS_TIME), sched);
+}
 
 /* 打开系统调色板 */
 static BOOL PickColor(HWND parent, COLORREF* color)
@@ -362,6 +380,31 @@ static BOOL ValidateAndSave(HWND hdlg)
     StringCchPrintfW(numStr, COUNT_OF(numStr), L"%d", g_cfg.backOpacity);
     writeOk = WritePrivateProfileStringW(L"Style", L"BackOpacity", numStr, g_iniPath) && writeOk;
 
+    /* 开机自启 */
+    {
+        BOOL asEnabled = (IsDlgButtonChecked(hdlg, IDC_CHK_AUTOSTART) == BST_CHECKED);
+        int asMode = IsDlgButtonChecked(hdlg, IDC_RADIO_AS_SCHED) ? 2 : 1;
+        int asMinutes = g_cfg.autoStartMinutes;
+        HWND dtpAs = GetDlgItem(hdlg, IDC_DTP_AS_TIME);
+        if (asMode == 2 && dtpAs) {
+            SYSTEMTIME ast;
+            ZeroMemory(&ast, sizeof(ast));
+            if (SendMessageW(dtpAs, DTM_GETSYSTEMTIME, 0, (LPARAM)&ast) == GDT_VALID)
+                asMinutes = ast.wHour * 60 + ast.wMinute;
+        }
+        g_cfg.autoStartEnabled = asEnabled;
+        g_cfg.autoStartMode = asMode;
+        g_cfg.autoStartMinutes = asMinutes;
+        StringCchPrintfW(numStr, COUNT_OF(numStr), L"%d", asEnabled ? 1 : 0);
+        writeOk = WritePrivateProfileStringW(L"AutoStart", L"Enabled", numStr, g_iniPath) && writeOk;
+        StringCchPrintfW(numStr, COUNT_OF(numStr), L"%d", asMode);
+        writeOk = WritePrivateProfileStringW(L"AutoStart", L"Mode", numStr, g_iniPath) && writeOk;
+        StringCchPrintfW(numStr, COUNT_OF(numStr), L"%d", asMinutes);
+        writeOk = WritePrivateProfileStringW(L"AutoStart", L"StartMinutes", numStr, g_iniPath) && writeOk;
+        /* 立即生效：写入/更新/删除 注册表+快捷方式+计划任务 */
+        AutoRunSync(asEnabled, asMode, asMinutes);
+    }
+
     /* 关键：强制重建窗口并刷新，让设置立即生效 */
     RecreateTimerWindow();
     RefreshContent(TRUE);
@@ -511,6 +554,25 @@ static INT_PTR CALLBACK SettingsDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM l
             EnableWindow(hCombo, !g_cfg.tzUseSystem);
         }
 
+        /* 开机自启 */
+        CheckDlgButton(hdlg, IDC_CHK_AUTOSTART,
+            g_cfg.autoStartEnabled ? BST_CHECKED : BST_UNCHECKED);
+        CheckRadioButton(hdlg, IDC_RADIO_AS_BOOT, IDC_RADIO_AS_SCHED,
+            g_cfg.autoStartMode == 2 ? IDC_RADIO_AS_SCHED : IDC_RADIO_AS_BOOT);
+        {
+            HWND dtpAs = GetDlgItem(hdlg, IDC_DTP_AS_TIME);
+            if (dtpAs) {
+                SYSTEMTIME ast;
+                SendMessageW(dtpAs, DTM_SETFORMATW, 0, (LPARAM)L"HH':'mm");
+                GetLocalTime(&ast);
+                ast.wHour = (WORD)(g_cfg.autoStartMinutes / 60);
+                ast.wMinute = (WORD)(g_cfg.autoStartMinutes % 60);
+                ast.wSecond = 0;
+                SendMessageW(dtpAs, DTM_SETSYSTEMTIME, GDT_VALID, (LPARAM)&ast);
+            }
+        }
+        UpdateAutoStartControls(hdlg);
+
         /* 字体名称下拉框（枚举系统字体） */
         PopulateFontCombo(hdlg);
 
@@ -592,6 +654,7 @@ static INT_PTR CALLBACK SettingsDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM l
             if (s_ready) ApplyLive(hdlg, FALSE);
             return TRUE;
         }
+        /* 自启定时选择器：无实时预览（取消会还原），这里无需处理 */
         break;
     }
 
@@ -674,6 +737,14 @@ static INT_PTR CALLBACK SettingsDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM l
             (id == IDC_RADIO_DESKTOP || id == IDC_RADIO_DESKTOP_COMPAT ||
              id == IDC_RADIO_PASSTHROUGH || id == IDC_RADIO_FLOAT)) {
             ApplyLive(hdlg, TRUE);
+            return TRUE;
+        }
+
+        /* 开机自启：总开关 / 两种模式切换 → 联动子控件显隐 */
+        if (notify == BN_CLICKED &&
+            (id == IDC_CHK_AUTOSTART || id == IDC_RADIO_AS_BOOT ||
+             id == IDC_RADIO_AS_SCHED)) {
+            UpdateAutoStartControls(hdlg);
             return TRUE;
         }
 
@@ -840,7 +911,7 @@ static DLGTEMPLATE* CreateDialogTemplate(void)
     static const int colorBtnIds[] = { IDC_BTN_TEXTCOLOR, IDC_BTN_CDCOLOR, IDC_BTN_BACKCOLOR };
     static const LPCWSTR colorLabels[] = { L"文字颜色", L"倒计时颜色", L"背景颜色" };
 
-    DlgBegin(&b, buffer, 320, 318, L"设置");
+    DlgBegin(&b, buffer, 320, 398, L"设置");
 
     /* ---- 显示模式 ---- */
     DlgAddAtom(&b, ATOM_BUTTON, WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0,
@@ -951,13 +1022,33 @@ static DLGTEMPLATE* CreateDialogTemplate(void)
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_HORZ | TBS_BOTTOM, 0,
                 156, 260, 152, 16, IDC_SLIDER_LINESPACING, NULL);
 
+    /* ---- 开机自启 ---- */
+    DlgAddAtom(&b, ATOM_BUTTON, WS_CHILD | WS_VISIBLE | BS_GROUPBOX, 0,
+               8, 282, 304, 80, 0xFFFF, L"开机自启 / 定时启动");
+    DlgAddAtom(&b, ATOM_BUTTON,
+               WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | WS_GROUP, 0,
+               18, 296, 180, 12, IDC_CHK_AUTOSTART, L"启用开机自启（默认开启）");
+    DlgAddAtom(&b, ATOM_BUTTON,
+               WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON, 0,
+               28, 312, 240, 12, IDC_RADIO_AS_BOOT,
+               L"每次开机启动（注册表+启动文件夹+计划任务 三重保障）");
+    DlgAddAtom(&b, ATOM_BUTTON,
+               WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON, 0,
+               28, 328, 110, 12, IDC_RADIO_AS_SCHED, L"每日定时启动");
+    DlgAddClass(&b, DATETIMEPICK_CLASSW,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | DTS_TIMEFORMAT, 0,
+        150, 326, 80, 16, IDC_DTP_AS_TIME, NULL);
+    DlgAddAtom(&b, ATOM_STATIC, WS_CHILD | WS_VISIBLE, 0,
+               18, 346, 288, 12, 0xFFFF,
+               L"定时启动晚于开机时间时，登录时仍会兜底拉起一次");
+
     /* ---- 确定 / 取消 ---- */
     DlgAddAtom(&b, ATOM_BUTTON,
                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 0,
-               108, 286, 72, 20, IDOK, L"确定");
+               108, 366, 72, 20, IDOK, L"确定");
     DlgAddAtom(&b, ATOM_BUTTON,
                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0,
-               200, 286, 72, 20, IDCANCEL, L"取消");
+               200, 366, 72, 20, IDCANCEL, L"取消");
 
     return DlgEnd(&b);
 }

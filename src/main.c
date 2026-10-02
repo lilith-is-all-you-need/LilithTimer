@@ -1,4 +1,7 @@
-﻿#include "lilith_timer.h"
+#include "lilith_timer.h"
+#include "autorun.h"
+#include "timesync.h"
+#include <stdlib.h>
 
 /* 启用 Common Controls 6.0：让 EM_SETCUEBANNER、Tooltip v6、视觉样式生效。
    用 pragma 让链接器自动生成正确的 manifest，避免外部 app.manifest 引发 SxS 错误。 */
@@ -20,6 +23,24 @@ BOOL      g_bDesktopPlain = FALSE;
 /* 外部函数声明（tray.c 中定义） */
 extern UINT GetTaskbarCreatedMsg(void);
 extern void SetTaskbarCreatedMsg(UINT msg);
+
+/* 网络校时：工作线程只做网络查询（会阻塞数秒），完成后 PostMessage 回主线程弹窗 */
+#define WM_APP_TIMESYNC_DONE  (WM_APP + 2)
+
+static DWORD WINAPI TimeSyncThreadProc(LPVOID param)
+{
+    TimeSyncResult* r = (TimeSyncResult*)malloc(sizeof(TimeSyncResult));
+    (void)param;
+    if (!r) return 0;
+    if (TimeSyncQuery(r) && (r->diffSec >= TIMESYNC_THRESHOLD_SEC ||
+                             r->diffSec <= -TIMESYNC_THRESHOLD_SEC)) {
+        /* 偏差超阈值：交给主线程弹自定义提示框 */
+        PostMessageW(g_hwndMsg, WM_APP_TIMESYNC_DONE, 0, (LPARAM)r);
+    } else {
+        free(r);   /* 无偏差或超时：静默结束 */
+    }
+    return 0;
+}
 
 static LRESULT CALLBACK MsgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -48,6 +69,15 @@ static LRESULT CALLBACK MsgWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
     case WM_APP_COMPAT_GUARD:
         CompatGuardPump();
         return 0;
+
+    case WM_APP_TIMESYNC_DONE: {
+        TimeSyncResult* r = (TimeSyncResult*)lParam;
+        if (r) {
+            TimeSyncPromptAndApply(hwnd, r);   /* 弹自定义提示框，用户同意后走 UAC 校时 */
+            free(r);
+        }
+        return 0;
+    }
 
     case WM_APP_TRAYICON:
         /* 左键或右键都弹出菜单；NIN_SELECT/NIN_POPUPMENU 覆盖触摸/键盘触发 */
@@ -123,6 +153,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     (void)hPrevInstance; (void)lpCmdLine; (void)nCmdShow;
 
+    /* 提权校时子进程入口：--settime <UTC毫秒>。
+       由主进程在用户同意校时后通过 ShellExecuteEx("runas") 拉起，
+       执行完系统级校时后直接退出，不创建任何窗口。 */
+    if (lpCmdLine && wcsncmp(lpCmdLine, L"--settime", 9) == 0) {
+        const WCHAR* p = lpCmdLine + 9;
+        while (*p == L' ' || *p == L'\t') p++;
+        return TimeSyncElevatedMain(p);
+    }
+
     /* 单实例 */
     mutex = CreateMutexW(NULL, TRUE, SINGLE_INSTANCE_MUTEX);
     if (mutex && GetLastError() == ERROR_ALREADY_EXISTS) {
@@ -196,6 +235,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     else
         DbgLog(L"全局热键已注册: Ctrl+Alt+L 弹出菜单");
     CreateTimerWindow();
+
+    /* 开机自启：校验三条通道（注册表 Run / 启动文件夹 / 计划任务），失效自动补写 */
+    AutoRunVerify();
+
+    /* 网络校时：后台线程查询，偏差超阈值时弹窗询问（超时静默失败） */
+    {
+        HANDLE hThread = CreateThread(NULL, 0, TimeSyncThreadProc, NULL, 0, NULL);
+        if (hThread) CloseHandle(hThread);
+    }
 
     SetTimer(g_hwndMsg, IDT_COUNTDOWN, 1000, NULL);   /* 500 → 1000，秒级刷新足够 */
     SetTimer(g_hwndMsg, IDT_WATCHDOG, 2000, NULL);
